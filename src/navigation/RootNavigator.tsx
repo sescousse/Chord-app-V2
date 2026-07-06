@@ -4,7 +4,7 @@ import CoursesScreen from '../screens/CoursesScreen';
 import ExercisesScreen from '../screens/ExercisesScreen';
 import HomeScreen from '../screens/HomeScreen';
 import ProfileScreen from '../screens/ProfileScreen';
-import { colors } from '../theme/colors';
+import { colors } from '../theme';
 
 export type RootTabParamList = {
   Home: undefined;

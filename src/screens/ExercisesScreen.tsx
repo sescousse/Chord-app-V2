@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { colors } from '../theme/colors';
+import { theme } from '../theme';
 
 export default function ExercisesScreen() {
   return (
@@ -14,20 +14,20 @@ export default function ExercisesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: theme.colors.background,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    padding: 24,
+    gap: theme.spacing.sm,
+    padding: theme.spacing.lg,
   },
   title: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: colors.text,
+    fontSize: theme.fontSize.xl,
+    fontWeight: theme.fontWeight.semibold,
+    color: theme.colors.text,
   },
   subtitle: {
-    fontSize: 15,
-    color: colors.textMuted,
+    fontSize: theme.fontSize.md,
+    color: theme.colors.textMuted,
     textAlign: 'center',
   },
 });

@@ -1,4 +1,4 @@
-// Placeholder theme — will be revisited once the visual design is defined.
+// Change these values to re-theme the whole app.
 export const colors = {
   background: '#FFFFFF',
   surface: '#F5F5F7',
