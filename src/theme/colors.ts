@@ -7,3 +7,9 @@ export const colors = {
   primary: '#3D5AFE',
   border: '#E0E0E5',
 };
+
+// Style de la barre de navigation du bas (tab bar).
+export const tabBar = {
+  backgroundColor: colors.surface,
+  borderTopColor: colors.border,
+};

@@ -4,7 +4,7 @@ import CoursesScreen from '../screens/CoursesScreen';
 import ExercisesScreen from '../screens/ExercisesScreen';
 import HomeScreen from '../screens/HomeScreen';
 import ProfileScreen from '../screens/ProfileScreen';
-import { colors } from '../theme';
+import { colors, tabBar } from '../theme';
 
 export type RootTabParamList = {
   Home: undefined;
@@ -22,6 +22,7 @@ export default function RootNavigator() {
         headerTintColor: colors.text,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
+        tabBarStyle: tabBar,
       }}
     >
       <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Accueil' }} />
