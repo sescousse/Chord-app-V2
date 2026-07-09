@@ -10,6 +10,6 @@ export const colors = {
 
 // Style de la barre de navigation du bas (tab bar).
 export const tabBar = {
-  backgroundColor: '#0329ff',
+  backgroundColor: '#ff0303',
   borderTopColor: colors.border,
 };
