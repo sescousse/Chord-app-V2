@@ -1,6 +1,12 @@
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import type { ExercisesStackParamList } from '../navigation/ExercisesStack';
 import { theme } from '../theme';
+
+// Type du hook de navigation, restreint aux écrans de la pile Exercices.
+type ExercisesNavigation = NativeStackNavigationProp<ExercisesStackParamList, 'ExercisesList'>;
 
 // Forme d'une entrée du tableau d'exercices ci-dessous.
 type Exercise = {
@@ -30,11 +36,14 @@ const EXERCISES: Exercise[] = [
     id: 'improvisation',
     title: 'Improvisation / Composition',
     accentColor: theme.colors.exercice, // TODO: remplacer par une couleur dédiée par exercice quand elle existera dans le thème
-    screen: '',
+    screen: 'Impro',
   },
 ];
 
 export default function ExercisesScreen() {
+  // Hook de navigation typé sur la pile Exercices (pas de "any").
+  const navigation = useNavigation<ExercisesNavigation>();
+
   return (
     <View style={styles.container}>
       <Text style={theme.text.title}>Exercices</Text>
@@ -45,7 +54,14 @@ export default function ExercisesScreen() {
           <Pressable
             key={exercise.id}
             style={styles.card}
-            onPress={() => console.log(exercise.title)}
+            onPress={() => {
+              // Seule la carte avec screen: "Impro" navigue vraiment, les autres restent en console.log.
+              if (exercise.screen === 'Impro') {
+                navigation.navigate('Impro');
+              } else {
+                console.log(exercise.title);
+              }
+            }}
           >
             <View style={[styles.accentDot, { backgroundColor: exercise.accentColor }]} />
             <Text style={styles.cardTitle}>{exercise.title}</Text>

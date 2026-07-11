@@ -1,7 +1,7 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
+import ExercisesStack from './ExercisesStack';
 import CoursesScreen from '../screens/CoursesScreen';
-import ExercisesScreen from '../screens/ExercisesScreen';
 import HomeScreen from '../screens/HomeScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import { colors, tabBar } from '../theme';
@@ -27,7 +27,12 @@ export default function RootNavigator() {
     >
       <Tab.Screen name="Home" component={HomeScreen} options={{ title: 'Accueil' }} />
       <Tab.Screen name="Courses" component={CoursesScreen} options={{ title: 'Cours' }} />
-      <Tab.Screen name="Exercises" component={ExercisesScreen} options={{ title: 'Exercices' }} />
+      {/* headerShown: false ici car ExercisesStack a déjà ses propres headers (sinon deux barres superposées). */}
+      <Tab.Screen
+        name="Exercises"
+        component={ExercisesStack}
+        options={{ title: 'Exercices', headerShown: false }}
+      />
       <Tab.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profil' }} />
     </Tab.Navigator>
   );
