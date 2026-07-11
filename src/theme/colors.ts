@@ -6,6 +6,8 @@ export const colors = {
   textMuted: '#6B6B6F',
   primary: '#3D5AFE',
   border: '#E0E0E5',
+  exercice: 'rgb(247, 6, 6)',
+  backGroundExercice: 'rgb(255, 222, 8)',
 };
 
 // Style de la barre de navigation du bas (tab bar).
