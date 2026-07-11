@@ -1,12 +1,15 @@
 import { colors, tabBar } from './colors';
 import { radius, spacing } from './spacing';
-import { fontSize, fontWeight, textStyle ,title ,subtitle} from './typography';
+import { fontSize, fontWeight, textStyle ,title ,subtitle,cardTitle,card} from './typography';
+
 
 export const theme = {
   colors,
   tabBar,
   spacing,
   radius,
+  cardTitle,
+  card,
   text: {
     size: fontSize,
     weight: fontWeight,
@@ -16,4 +19,4 @@ export const theme = {
   },
 };
 
-export { colors, tabBar, spacing, radius, fontSize, fontWeight, textStyle };
+export { colors, tabBar, spacing, radius, fontSize, fontWeight, textStyle ,cardTitle, card};

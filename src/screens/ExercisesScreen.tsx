@@ -51,10 +51,7 @@ export default function ExercisesScreen() {
       <View style={styles.list}>
         {/* Un Pressable par exercice, généré à partir du tableau EXERCISES. */}
         {EXERCISES.map((exercise) => (
-          <Pressable
-            key={exercise.id}
-            style={styles.card}
-            onPress={() => {
+          <Pressable key={exercise.id} style={theme.card} onPress={() => {
               // Seule la carte avec screen: "Impro" navigue vraiment, les autres restent en console.log.
               if (exercise.screen === 'Impro') {
                 navigation.navigate('Impro');
@@ -64,7 +61,7 @@ export default function ExercisesScreen() {
             }}
           >
             <View style={[styles.accentDot, { backgroundColor: exercise.accentColor }]} />
-            <Text style={styles.cardTitle}>{exercise.title}</Text>
+            <Text style={theme.cardTitle}>{exercise.title}</Text>
           </Pressable>
         ))}
       </View>
@@ -83,26 +80,9 @@ const styles = StyleSheet.create({
   list: {
     gap: theme.spacing.md,
   },
-  card: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: theme.colors.backGroundExercice,
-    borderRadius: theme.radius.xl,
-    padding: theme.spacing.lg,
-    gap: theme.spacing.md,
-    // Pas d'épaisseur de bordure définie dans le thème : voir le message ci-contre.
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
   accentDot: {
     width: theme.spacing.lg,
     height: theme.spacing.lg,
     borderRadius: theme.radius.xl,
-  },
-  cardTitle: {
-    flex: 1,
-    fontSize: theme.text.size.lg,
-    fontWeight: theme.text.weight.semibold,
-    color: theme.colors.text,
   },
 });

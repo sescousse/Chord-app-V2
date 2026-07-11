@@ -1,5 +1,7 @@
 // Change these values to adjust text styles across the whole app.
 import { colors } from './colors'
+import type { TextStyle } from 'react-native';
+import { theme } from '../theme';
 export const fontSize = {
   sm: 13,
   md: 15,
@@ -30,4 +32,23 @@ export const subtitle = {
   fontSize: fontSize.md,
   color: colors.textMuted,
   textAlign: 'center' as const,
+}
+
+export const  cardTitle: TextStyle = {
+    flex: 1,
+    fontSize: theme.text.size.lg,
+    fontWeight: theme.text.weight.semibold,
+    color: theme.colors.text,
+  };
+
+export const card: TextStyle = {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.backGroundExercice,
+    borderRadius: theme.radius.xl,
+    padding: theme.spacing.lg,
+    gap: theme.spacing.md,
+    // Pas d'épaisseur de bordure définie dans le thème : voir le message ci-contre.
+    borderWidth: 1,
+    borderColor: theme.colors.border,
 }

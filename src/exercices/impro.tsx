@@ -56,8 +56,6 @@ export default function ImproScreen() {
   );
 }
 
-
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
