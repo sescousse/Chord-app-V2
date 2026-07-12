@@ -1,6 +1,6 @@
 import { colors, tabBar } from './colors';
-import { radius, spacing } from './spacing';
-import { fontSize, fontWeight, textStyle ,title ,subtitle,cardTitle,card} from './typography';
+import { radius, spacing,} from './spacing';
+import { fontSize, fontWeight, textStyle ,title ,subtitle,cardTitle,card, progressionText} from './typography';
 
 
 export const theme = {
@@ -16,6 +16,7 @@ export const theme = {
     style: textStyle,
     title,
     subtitle,
+    progressionText,
   },
 };
 

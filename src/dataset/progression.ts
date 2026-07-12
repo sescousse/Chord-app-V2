@@ -12,6 +12,9 @@ export const PROGRESSIONS: Progression[] = [
     { emotion: "happy", degrees: ["I", "IV", "V"], gamme: "majeur" },
     { emotion: "sad",   degrees: ["vi", "IV", "I", "V"], gamme: "mineur" },
     { emotion: "sad",   degrees: ["i", "VI", "III", "VII"], gamme: "mineur" },
+    { emotion: "hopeful", degrees: ["I", "IV", "vi", "V"], gamme: "majeur" },
+    { emotion: "nostalgic", degrees: ["I","iii","vi","ii","V"], gamme: "majeur" },
+    { emotion: "romantic", degrees: ["I","v","VI","VII"], gamme: "mineur" },
 ];
 
 export type Style = {

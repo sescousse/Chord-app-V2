@@ -36,7 +36,7 @@ const EXERCISES: Exercise[] = [
     id: 'improvisation',
     title: 'Improvisation / Composition',
     accentColor: theme.colors.exercice, // TODO: remplacer par une couleur dédiée par exercice quand elle existera dans le thème
-    screen: 'Impro',
+    screen: 'ImproMenu', // mène au menu intercalé (improMenu.tsx), pas directement à Impro
   },
 ];
 
@@ -52,9 +52,9 @@ export default function ExercisesScreen() {
         {/* Un Pressable par exercice, généré à partir du tableau EXERCISES. */}
         {EXERCISES.map((exercise) => (
           <Pressable key={exercise.id} style={theme.card} onPress={() => {
-              // Seule la carte avec screen: "Impro" navigue vraiment, les autres restent en console.log.
-              if (exercise.screen === 'Impro') {
-                navigation.navigate('Impro');
+              // Seule la carte avec screen: "ImproMenu" navigue vraiment, les autres restent en console.log.
+              if (exercise.screen === 'ImproMenu') {
+                navigation.navigate('ImproMenu');
               } else {
                 console.log(exercise.title);
               }

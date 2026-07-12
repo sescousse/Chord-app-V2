@@ -10,6 +10,9 @@ import { PROGRESSIONS, type Emotion } from '../dataset/progression';
 const MOODS: { label: string; value: Emotion }[] = [
   { label: 'Joyeux', value: 'happy' },
   { label: 'Triste', value: 'sad' },   // sert a nommer les valeurs happy/sad 
+  { label: 'Espoir', value: 'hopeful' },
+  { label: 'Nostalgique', value: 'nostalgic' },
+  { label: 'Romantique', value: 'romantic' },
 ];
 
 export default function ImproScreen() {
@@ -41,17 +44,22 @@ export default function ImproScreen() {
       </View>
 
       {/* AFFICHAGE des progressions : séparé, après les boutons. */}
+      <Text style={theme.text.subtitle}>
+        {selectedEmotion
+          ? 'Voici les progressions correspondant à ton humeur :'
+          : 'Ici s\'afficheront les progressions'}
+      </Text>
       {filteredProgressions.length > 0 ? (
-        filteredProgressions.map((progression, index) => (
-          <Text key={index} style={theme.text.subtitle}>
-            {progression.degrees.join(' - ')}
-          </Text>
-        ))
-      ) : (
-        <Text style={theme.text.subtitle}>
-          {selectedEmotion ? 'Aucune progression trouvée' : 'Choisis une émotion'}
-        </Text>
-      )}
+        <View style={styles.progressionRow}>
+          {filteredProgressions.map((progression, index) => (
+            <Text key={index} style={theme.text.progressionText}>
+              {progression.degrees.join(' - ')}{'   '}{progression.gamme}
+            </Text>
+          ))}
+        </View>
+      ) : selectedEmotion ? (
+        <Text style={theme.text.subtitle}>Aucune progression trouvée</Text>
+      ) : null}
     </View>
   );
 }
@@ -67,6 +75,14 @@ const styles = StyleSheet.create({
   moodRow: {
     flexDirection: 'row',
     gap: theme.spacing.md,
+  },
+  progressionRow: {
+    alignSelf: 'center',
+    gap: theme.spacing.md,
+    backgroundColor: theme.colors.backGroundExercice,
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.xl,
+    borderRadius: theme.radius.lg,
   },
   moodButton: {
     flex: 1,

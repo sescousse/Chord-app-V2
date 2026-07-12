@@ -1,5 +1,4 @@
 // Change these values to adjust spacing across the whole app.
-import { theme } from '../theme';
 export const spacing = {
   xs: 4,
   sm: 8,
