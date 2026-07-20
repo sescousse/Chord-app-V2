@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View, ScrollView } from 'react-native';
+import { Chord, Scale } from 'tonal';
 
 import { theme } from '../theme';
+import { PianoChord } from '../components/PianoChord';
+import { chordNotesWithOctaves } from '../dataset/chordUtils';
 
 // Palette des degrés proposés. Modifie ce tableau pour ajouter/retirer des boutons.
 const MAJEUR: string[] = ['I', 'ii', 'iii', 'IV', 'V', 'vi', 'vii'];
@@ -21,8 +24,58 @@ const DEGREES_BY_SCALE: Record<ScaleChoice, string[]> = {
   mineur: MINEURNAT,
 };
 
+// Tonalités proposées pour le choix de tonique. Ajoute des notes ici pour étendre le choix.
+const TONICS: string[] = ['C', 'G', 'D', 'A', 'E', 'F'];
+
+// Traduit notre nom de gamme interne vers le nom que Tonal.js attend
+// (Scale.get reconnaît "major" et "minor", ce dernier désignant la gamme
+// mineure naturelle, c'est-à-dire l'aeolien).
+const TONAL_SCALE_NAME: Record<ScaleChoice, string> = {
+  majeur: 'major',
+  mineur: 'minor',
+};
+
+// Position (0 à 6) de chaque degré romain dans la gamme, indépendamment de la casse.
+const ROMAN_TO_INDEX: Record<string, number> = {
+  i: 0,
+  ii: 1,
+  iii: 2,
+  iv: 3,
+  v: 4,
+  vi: 5,
+  vii: 6,
+};
+
+// Calcule l'accord concret (ex: "F", "Am", "Bdim") correspondant à un degré,
+// dans une gamme et une tonalité données.
+//
+// 1) Scale.get(`${tonic} ${scaleName}`).notes : Tonal construit la gamme
+//    demandée (majeure ou mineure naturelle) à partir de la tonique et
+//    renvoie ses 7 notes, dans l'ordre.
+// 2) On repère l'index du degré (I → 0, ii → 1, ...) pour piocher la bonne
+//    note dans ce tableau : c'est la fondamentale de l'accord.
+// 3) La casse du chiffre romain (majuscule/minuscule) et le "°" nous disent
+//    si l'accord est majeur, mineur ou diminué.
+// 4) Chord.get(`${root}${suffix}`) fait construire l'accord par Tonal et
+//    nous renvoie, entre autres, son "symbol" : le nom concret et lisible
+//    de l'accord (ex: "Am", "Bdim").
+function degreeToChord(degree: string, scale: ScaleChoice, tonic: string): string {
+  const scaleNotes = Scale.get(`${tonic} ${TONAL_SCALE_NAME[scale]}`).notes;
+
+  const romanPart = degree.replace('°', '');
+  const index = ROMAN_TO_INDEX[romanPart.toLowerCase()];
+  const root = scaleNotes[index];
+
+  const isDiminished = degree.includes('°');
+  const isUppercase = romanPart === romanPart.toUpperCase();
+  const suffix = isDiminished ? 'dim' : isUppercase ? '' : 'm';
+
+  return Chord.get(`${root}${suffix}`).symbol;
+}
+
 export default function CreationScreen() {
   const [scale, setScale] = useState<ScaleChoice | null>(null);
+  const [tonic, setTonic] = useState<string>('C');
   const [progression, setProgression] = useState<string[]>([]);
 
   // Ajout immuable : on crée un nouveau tableau (spread + degré) au lieu de
@@ -41,7 +94,7 @@ export default function CreationScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={theme.text.title}>Crée ta progression</Text>
 
       {/* Choix de la gamme : conditionne les degrés proposés ensuite. */}
@@ -60,23 +113,70 @@ export default function CreationScreen() {
         })}
       </View>
 
-      {/* Palette des degrés disponibles, une fois la gamme choisie. */}
-      {scale ? (
+      {/* Choix de la tonalité : combiné à la gamme pour calculer les accords concrets. */}
+      <View style={styles.scaleRow}>
+        {TONICS.map((item) => {
+          const isSelected = item === tonic;
+          return (
+            <Pressable
+              key={item}
+              style={[styles.scaleButton, isSelected && styles.scaleButtonSelected]}
+              onPress={() => setTonic(item)}
+            >
+              <Text style={styles.scaleLabel}>{item}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* Palette des degrés disponibles, une fois la gamme et la tonalité choisies. */}
+      {scale && tonic ? (
         <View style={styles.paletteRow}>
           {DEGREES_BY_SCALE[scale].map((degree) => (
             <Pressable key={degree} style={styles.degreeButton} onPress={() => addDegree(degree)}>
               <Text style={styles.degreeLabel}>{degree}</Text>
+              <Text style={styles.chordLabel}>{degreeToChord(degree, scale, tonic)}</Text>
             </Pressable>
           ))}
         </View>
       ) : (
-        <Text style={theme.text.subtitle}>Choisis une gamme pour voir les degrés</Text>
+        <Text style={theme.text.subtitle}>Choisis une gamme et une tonalité pour voir les degrés</Text>
       )}
 
-      {/* Progression en cours de construction. */}
+      {/* Progression en cours de construction : degré + accord concret pour chaque étape. */}
       <Text style={theme.text.subtitle}>
-        {progression.length > 0 ? progression.join(' - ') : 'Ajoute des accords pour construire ta progression'}
+        {progression.length > 0 && scale
+          ? progression.map((degree) => `${degree} (${degreeToChord(degree, scale, tonic)})`).join(' - ')
+          : 'Ajoute des accords pour construire ta progression'}
       </Text>
+
+      {/* Zone à blocs-pianos : un bloc par accord de la progression, dans
+          l'ordre. On protège l'affichage avec "scale" car degreeToChord en a
+          besoin (Scale.get) — sans gamme choisie, on ne peut pas encore
+          calculer d'accord concret, donc on affiche juste le message d'invite. */}
+      <View style={styles.chordBlocksContainer}>
+        {progression.length > 0 && scale ? (
+          progression.map((degree, index) => {
+            // 1) Degré → accord concret (ex: "iv" en Do majeur → "Dm").
+            const chordName = degreeToChord(degree, scale, tonic);
+            // 2) Accord concret → notes qui le composent. Chord.get renvoie
+            //    un objet décrivant l'accord ; sa propriété "notes" est le
+            //    tableau de noms de notes (ex: "Dm" → ["D", "F", "A"]) que
+            //    PianoChord attend dans sa prop "notes" pour savoir quelles
+            //    touches mettre en valeur sur le clavier.
+            const chordNotes = chordNotesWithOctaves(chordName, 3);
+
+            return (
+              <View key={index} style={styles.chordBlock}>
+                <Text style={styles.chordBlockLabel}>{chordName}</Text>
+                <PianoChord notes={chordNotes} />
+              </View>
+            );
+          })
+        ) : (
+          <Text style={theme.text.subtitle}>Ta progression apparaîtra ici</Text>
+        )}
+      </View>
 
       <View style={styles.actionsRow}>
         <Pressable style={styles.actionButton} onPress={removeLast}>
@@ -86,18 +186,20 @@ export default function CreationScreen() {
           <Text style={styles.actionLabel}>Effacer</Text>
         </Pressable>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-    justifyContent: 'center',
-    padding: theme.spacing.lg,
-    gap: theme.spacing.lg,
-  },
+container: {
+  flex: 1,
+  backgroundColor: theme.colors.background,
+},
+content: {
+  padding: theme.spacing.lg,
+  gap: theme.spacing.lg,
+  // plus de justifyContent: 'center' ! Le contenu commence en haut et descend.
+},
   scaleRow: {
     flexDirection: 'row',
     gap: theme.spacing.md,
@@ -137,6 +239,31 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
   },
   degreeLabel: {
+    fontSize: theme.text.size.lg,
+    fontWeight: theme.text.weight.semibold,
+    color: theme.colors.text,
+  },
+  chordLabel: {
+    fontSize: theme.text.size.sm,
+    color: theme.colors.textMuted,
+  },
+  chordBlocksContainer: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.lg,
+  },
+  chordBlock: {
+     width: '90%',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.md,
+    gap: theme.spacing.sm,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+  },
+  chordBlockLabel: {
     fontSize: theme.text.size.lg,
     fontWeight: theme.text.weight.semibold,
     color: theme.colors.text,
