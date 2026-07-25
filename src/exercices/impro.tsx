@@ -25,7 +25,7 @@ export default function ImproScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={theme.text.title}>Improvisation</Text>
+      <Text style={theme.text.title}>Choisit ton emotion</Text>
 
       {/* Les boutons : leur .map ne s'occupe QUE des boutons. */}
       <View style={styles.moodRow}>
@@ -37,7 +37,7 @@ export default function ImproScreen() {
               style={[styles.moodButton, isSelected && styles.moodButtonSelected]}
               onPress={() => setSelectedEmotion(mood.value)}
             >
-              <Text style={styles.moodLabel}>{mood.label}</Text>
+              <Text style={styles.moodLabel} numberOfLines={1}>{mood.label}</Text>
             </Pressable>
           );
         })}
@@ -74,6 +74,8 @@ const styles = StyleSheet.create({
   },
   moodRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
     gap: theme.spacing.md,
   },
   progressionRow: {
@@ -85,7 +87,6 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.lg,
   },
   moodButton: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.surface,

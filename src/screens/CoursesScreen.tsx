@@ -1,67 +1,133 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { theme } from '../theme';
 import type { CourseStackParamList } from '../navigation/CourseStack';
 
 type CoursesScreenNavigationProp = NativeStackNavigationProp<CourseStackParamList, 'CoursesList'>;
-// a ajouter quand course satck sera pret
+
+// Routes de CourseStack qui ne demandent AUCUN paramètre (ex: "CoursesList",
+// "CourseParcours"), à l'exclusion de routes comme "Lesson" qui, elle,
+// exige un paramètre "lesson". C'est nécessaire depuis l'ajout de "Lesson" à
+// CourseStackParamList : naviguer en un seul argument
+// (navigation.navigate(course.screen), sans rien d'autre) n'est possible que
+// vers une route sans paramètre — TypeScript refuserait sinon un
+// course.screen qui pourrait valoir "Lesson". Calculé automatiquement à
+// partir de CourseStackParamList plutôt qu'énuméré à la main, pour rester
+// juste si de nouvelles routes sont ajoutées plus tard.
+type NoParamRouteName = {
+  [RouteName in keyof CourseStackParamList]: CourseStackParamList[RouteName] extends undefined
+    ? RouteName
+    : never;
+}[keyof CourseStackParamList];
+
+// Niveau d'un cours. L'ordre des sections affichées est décidé séparément
+// par LEVELS (juste en dessous), pas par cet ordre-ci.
+type Level = 'debutant' | 'intermediaire' | 'avance';
+
 type Course = {
   id: string;
   title: string;
+  level: Level;
   accentColor: string;
-  screen?: keyof CourseStackParamList;
-}
+  // Optionnel, et typé sur les routes RÉELLEMENT déclarées dans CourseStack
+  // qui n'attendent pas de paramètre (NoParamRouteName, voir plus haut)
+  // plutôt qu'un simple "string" : ça garde navigation.navigate(course.screen)
+  // type-safe, comme avant. Les écrans de ces 11 cours n'existent pas
+  // encore, donc aucun n'a ce champ pour l'instant ; il suffira de l'ajouter
+  // (avec la route correspondante dans CourseStack) pour brancher un cours
+  // plus tard.
+  screen?: NoParamRouteName;
+};
+
+// Titre de section affiché pour chaque niveau, DANS L'ORDRE où les sections
+// doivent apparaître à l'écran. Seul endroit à modifier pour renommer ou
+// réordonner un niveau — le rendu plus bas ne fait que parcourir ce tableau.
+const LEVELS: { level: Level; title: string }[] = [
+  { level: 'debutant', title: 'Débutant' },
+  { level: 'intermediaire', title: 'Intermédiaire' },
+  { level: 'avance', title: 'Avancé' },
+];
+
+// Les 11 cours. Niveaux PROVISOIRES (à ajuster plus tard). Ajouter un cours
+// = ajouter une entrée ici avec son niveau ; les sections plus bas se
+// contentent de filtrer ce tableau par niveau, aucune donnée dupliquée
+// ailleurs.
 const COURSES: Course[] = [
-  {
-    id: 'Degrés',
-    title: 'Degrés',
-    accentColor: theme.colors.primary,
-    screen: 'Degrés',
-  },
-  {
-    id: 'Gammes',
-    title: 'Gammes',
-    accentColor: theme.colors.primary,
-    screen: 'Gammes',
-  },
+  { id: 'theorie-impro', title: "Théorie pour l'impro", level: 'debutant', accentColor: theme.colors.primary, screen: 'CourseParcours' },
+  { id: 'socle-improvisation', title: "Socle de l'improvisation", level: 'debutant', accentColor: theme.colors.primary },
+  { id: 'accords', title: 'Tout sur les accords', level: 'intermediaire', accentColor: theme.colors.primary },
+  { id: 'rythme-groove', title: 'Rythme et groove', level: 'debutant', accentColor: theme.colors.primary },
+  { id: 'harmonisation', title: "Guide de l'harmonisation", level: 'intermediaire', accentColor: theme.colors.primary },
+  { id: 'emotions', title: 'Jouer ses émotions', level: 'intermediaire', accentColor: theme.colors.primary },
+  { id: 'melodie-main-droite', title: 'Mélodie main droite', level: 'intermediaire', accentColor: theme.colors.primary },
+  { id: 'accompagnement-main-gauche', title: 'Accompagnement main gauche', level: 'intermediaire', accentColor: theme.colors.primary },
+  { id: 'coordination-mains', title: 'Coordination des mains', level: 'intermediaire', accentColor: theme.colors.primary },
+  { id: 'jazz-blues-fondamentaux', title: 'Jazz-blues fondamentaux', level: 'avance', accentColor: theme.colors.primary },
+  { id: 'jazz-blues-avance', title: 'Jazz-blues avancé', level: 'avance', accentColor: theme.colors.primary },
 ];
 
 export default function CoursesScreen() {
   const navigation = useNavigation<CoursesScreenNavigationProp>();
+
+  const openCourse = (course: Course) => {
+    if (course.screen) {
+      navigation.navigate(course.screen);
+    } else {
+      console.log(course.title);
+    }
+  };
+
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={theme.text.title}>Cours</Text>
-      <View style={styles.list}>
-        {COURSES.map((course) => (
-          <Pressable key={course.id} style={theme.card} onPress={() => {
-              if (course.screen) {
-                navigation.navigate(course.screen);
-              } else {
-                console.log(course.title);
-              }
-            }}
-            >
-            <View style={[styles.accentDot, { backgroundColor: course.accentColor }]} />
-            <Text style={theme.cardTitle}>{course.title}</Text>
-          </Pressable>
-        ))}
-      </View>
-    </View>
+
+      {/* Une section par niveau (LEVELS), chacune filtrant COURSES par
+          niveau puis mappant les cours correspondants en cartes : aucun JSX
+          de carte/section n'est dupliqué. */}
+      {LEVELS.map(({ level, title }) => {
+        const coursesForLevel = COURSES.filter((course) => course.level === level);
+
+        return (
+          <View key={level} style={styles.section}>
+            <Text style={styles.sectionTitle}>{title}</Text>
+            <View style={styles.list}>
+              {coursesForLevel.map((course) => (
+                <Pressable key={course.id} style={theme.card} onPress={() => openCourse(course)}>
+                  <View style={[styles.accentDot, { backgroundColor: course.accentColor }]} />
+                  <Text style={theme.cardTitle}>{course.title}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        );
+      })}
+    </ScrollView>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: theme.spacing.sm,
-    padding: theme.spacing.lg,
   },
-   list: {
+  content: {
+    padding: theme.spacing.lg,
+    gap: theme.spacing.lg,
+  },
+  section: {
+    gap: theme.spacing.md,
+  },
+  // Pas de token "titre de section" dédié dans le thème (theme.text.title
+  // est déjà pris par le titre de page "Cours") : on compose donc ce style à
+  // partir des tokens existants (theme.text.size / theme.text.weight /
+  // theme.colors) plutôt que d'écrire des valeurs en dur.
+  sectionTitle: {
+    fontSize: theme.text.size.lg,
+    fontWeight: theme.text.weight.semibold,
+    color: theme.colors.text,
+  },
+  list: {
     gap: theme.spacing.md,
   },
   accentDot: {

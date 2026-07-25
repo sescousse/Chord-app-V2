@@ -75,3 +75,65 @@ export function invertChord(fundamentalNotes: string[], inversion: number): stri
 
   return notes;
 }
+
+// Transpose TOUTES les notes reçues d'une octave, dans la direction donnée
+// (+1 pour monter, -1 pour descendre) : jamais une note isolée. Note.get
+// sépare le nom de note ("pc", ex: "C") de son octave ("oct", ex: 5) ; on
+// reconstruit juste la note avec oct + direction, exactement comme le fait
+// déjà invertChord pour une seule note à la fois.
+function transposeNotesByOctave(notes: string[], direction: 1 | -1): string[] {
+  return notes.map((note) => {
+    const { pc, oct } = Note.get(note);
+    // Même remarque que dans invertChord : "oct" est optionnel dans le type
+    // Tonal, mais les notes reçues par fitNotesToRange viennent toujours de
+    // chordNotesWithOctaves / invertChord, qui en ajoutent une systématiquement.
+    return `${pc}${(oct ?? 0) + direction}`;
+  });
+}
+
+// Convertit un tableau de notes (avec octave) en leurs positions MIDI,
+// en ignorant les notes mal orthographiées (Note.midi renvoie alors null).
+function getMidiValues(notes: string[]): number[] {
+  return notes.map((note) => Note.midi(note)).filter((midi): midi is number => midi !== null);
+}
+
+// Ramène un accord dans les bornes MIDI [lowMidi, highMidi] en transposant
+// TOUTES ses notes ensemble, octave par octave (jamais une note isolée), pour
+// qu'il reste musicalement identique : mêmes notes, même renversement, même
+// basse relative — seule son octave globale change.
+//
+// Cas prioritaire, celui qui se produit avec les renversements actuels : une
+// note remontée par invertChord peut dépasser la borne haute du clavier (ex:
+// 2e renversement de La mineur → ["E4","A4","C5"], C5 dépasse B4, la dernière
+// touche affichée). Condition de débordement : la note la plus AIGUË (le max
+// des positions MIDI) dépasse highMidi. Tant que c'est le cas, on fait
+// descendre tout l'accord d'une octave (-12 en MIDI, via transposeNotesByOctave
+// avec direction -1) et on recalcule les positions MIDI, jusqu'à ce que
+// l'accord entier tienne sous highMidi.
+//
+// Cas symétrique, optionnel (ne se produit pas avec les renversements actuels,
+// mais gère le cas général) : si la note la plus GRAVE (le min des positions
+// MIDI) reste sous lowMidi, on remonte tout l'accord d'une octave — mais
+// seulement si ça ne ferait pas redépasser highMidi de l'autre côté (accord
+// trop large pour tenir entre les deux bornes), pour éviter une boucle qui
+// alternerait indéfiniment entre "trop haut" et "trop bas".
+export function fitNotesToRange(notes: string[], lowMidi: number, highMidi: number): string[] {
+  let result = notes;
+  let midis = getMidiValues(result);
+
+  while (midis.length > 0 && Math.max(...midis) > highMidi) {
+    result = transposeNotesByOctave(result, -1);
+    midis = getMidiValues(result);
+  }
+
+  while (
+    midis.length > 0 &&
+    Math.min(...midis) < lowMidi &&
+    Math.max(...midis) + 12 <= highMidi
+  ) {
+    result = transposeNotesByOctave(result, 1);
+    midis = getMidiValues(result);
+  }
+
+  return result;
+}

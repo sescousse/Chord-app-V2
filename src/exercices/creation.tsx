@@ -7,7 +7,7 @@ import { PianoChord } from '../components/PianoChord';
 import { chordNotesWithOctaves } from '../dataset/chordUtils';
 
 // Palette des degrés proposés. Modifie ce tableau pour ajouter/retirer des boutons.
-const MAJEUR: string[] = ['I', 'ii', 'iii', 'IV', 'V', 'vi', 'vii'];
+const MAJEUR: string[] = ['I', 'ii', 'iii', 'IV', 'V', 'vi', 'vii°'];
 const MINEURNAT: string[] = ['i', 'ii°', 'III', 'iv', 'v', 'VI', 'VII'];
 
 type ScaleChoice = 'majeur' | 'mineur';
@@ -107,7 +107,7 @@ export default function CreationScreen() {
               style={[styles.scaleButton, isSelected && styles.scaleButtonSelected]}
               onPress={() => setScale(item.value)}
             >
-              <Text style={styles.scaleLabel}>{item.label}</Text>
+              <Text style={styles.scaleLabel} numberOfLines={1}>{item.label}</Text>
             </Pressable>
           );
         })}
@@ -123,7 +123,7 @@ export default function CreationScreen() {
               style={[styles.scaleButton, isSelected && styles.scaleButtonSelected]}
               onPress={() => setTonic(item)}
             >
-              <Text style={styles.scaleLabel}>{item}</Text>
+              <Text style={styles.scaleLabel} numberOfLines={1}>{item}</Text>
             </Pressable>
           );
         })}
@@ -202,10 +202,11 @@ content: {
 },
   scaleRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
     gap: theme.spacing.md,
   },
   scaleButton: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.surface,

@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-na
 import { Interval, Note } from 'tonal';
 
 import { theme } from '../theme';
-import { invertChord } from '../dataset/chordUtils';
+import { fitNotesToRange, invertChord } from '../dataset/chordUtils';
 
 // Props du composant : l'accord à afficher. On type ça avec une interface
 // plutôt qu'un "any" pour que TypeScript nous protège si on passe autre
@@ -42,6 +42,17 @@ const OCTAVES = 2;
 // donc 4). C'est ce qui permet de savoir exactement à quelle note-avec-octave
 // (ex: "C3", "C#3", "D3"...) correspond chaque touche dessinée.
 const BASE_OCTAVE = 3;
+
+// Bornes MIDI du clavier affiché (C3 à B4 avec BASE_OCTAVE = 3 et OCTAVES =
+// 2) : la 1ère touche (C de la 1ère octave) et la dernière (B de la dernière
+// octave). Utilisées par fitNotesToRange pour savoir jusqu'où un accord peut
+// monter avant de déborder par le haut (voir son appel plus bas). Calculées
+// à partir de BASE_OCTAVE/OCTAVES plutôt qu'écrites en dur, pour rester
+// justes si ces constantes changent. Note.midi ne renvoie null que pour une
+// note invalide ; ces deux notes sont toujours valides, le "?? " ne sert
+// qu'à satisfaire TypeScript (Note.midi renvoie `number | null`).
+const KEYBOARD_LOW_MIDI = Note.midi(`C${BASE_OCTAVE}`) ?? 0;
+const KEYBOARD_HIGH_MIDI = Note.midi(`B${BASE_OCTAVE + OCTAVES - 1}`) ?? 127;
 
 // Hauteur du clavier : fixe, elle ne dépend ni du nombre d'octaves ni de la
 // largeur de l'écran.
@@ -349,20 +360,33 @@ export function PianoChord({ notes }: PianoChordProps) {
   // (3 pour une triade : fondamental, 1er, 2e renversement).
   const totalInversions = notes.length;
 
-  // Notes réellement affichées sur le clavier pour ce renversement.
+  // Notes du renversement demandé, avant vérification qu'il tient sur le
+  // clavier affiché.
   const invertedNotes = invertChord(notes, inversion);
+
+  // Un renversement fait remonter la (les) note(s) grave(s) par-dessus les
+  // autres : ça peut pousser la note la plus aiguë au-dessus de la dernière
+  // touche du clavier (ex: 2e renversement de La mineur → ["E4","A4","C5"],
+  // C5 dépasse B4). fitNotesToRange fait alors redescendre TOUT l'accord
+  // d'une octave pour qu'il tienne entre KEYBOARD_LOW_MIDI et
+  // KEYBOARD_HIGH_MIDI, sans changer les notes ni le renversement — displayedNotes
+  // est donc ce qu'il faut afficher (et sur quoi calculer fonctions/basse),
+  // invertedNotes n'étant qu'une étape intermédiaire.
+  const displayedNotes = fitNotesToRange(invertedNotes, KEYBOARD_LOW_MIDI, KEYBOARD_HIGH_MIDI);
 
   // La fondamentale de l'accord ne change JAMAIS avec les renversements (Sol
   // reste la fondamentale d'un Sol majeur même quand Si ou Ré est à la
   // basse) : on la prend donc sur les notes fondamentales reçues (notes[0]),
-  // jamais sur invertedNotes (dont la 1ère note change selon le renversement).
+  // jamais sur displayedNotes (dont la 1ère note change selon le renversement
+  // et l'ajustement d'octave).
   const root = notes[0];
 
   // Une seule fois par rendu : la fonction (R, 3, 5...) de chaque note
   // affichée (indexée par MIDI), et la hauteur MIDI de la basse (la note la
-  // plus grave du renversement courant — elle change donc quand on navigue).
-  const noteFunctions = getChordNoteFunctions(invertedNotes, root);
-  const bassMidi = getBassMidi(invertedNotes);
+  // plus grave affichée — elle change donc quand on navigue ou quand
+  // fitNotesToRange redescend l'accord).
+  const noteFunctions = getChordNoteFunctions(displayedNotes, root);
+  const bassMidi = getBassMidi(displayedNotes);
 
   // Navigation : on boucle aux extrémités (dernier renversement → 1er et
   // inversement) plutôt que de bloquer les boutons. Choix fait parce qu'une
@@ -389,7 +413,7 @@ export function PianoChord({ notes }: PianoChordProps) {
         // c'est forcément valide — le "?? -1" ne sert qu'à satisfaire
         // TypeScript (Note.midi renvoie `number | null`).
         const keyMidi = Note.midi(noteWithOctave) ?? -1;
-        const highlighted = isNoteInChord(noteWithOctave, invertedNotes);
+        const highlighted = isNoteInChord(noteWithOctave, displayedNotes);
         const isBass = highlighted && keyMidi === bassMidi;
         const noteFunction = noteFunctions.get(keyMidi);
 
@@ -448,7 +472,7 @@ export function PianoChord({ notes }: PianoChordProps) {
         // près.
         const noteWithOctave = `${note}${octave}`;
         const keyMidi = Note.midi(noteWithOctave) ?? -1;
-        const highlighted = isNoteInChord(noteWithOctave, invertedNotes);
+        const highlighted = isNoteInChord(noteWithOctave, displayedNotes);
         const isBass = highlighted && keyMidi === bassMidi;
         const noteFunction = noteFunctions.get(keyMidi);
         const left =
