@@ -1,16 +1,13 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, ScrollView } from 'react-native';
-import { Chord, Scale } from 'tonal';
 
 import { theme } from '../theme';
 import { PianoChord } from '../components/PianoChord';
-import { chordNotesWithOctaves } from '../dataset/chordUtils';
+import { chordNotesWithOctaves, degreeToChord, type ScaleChoice } from '../dataset/chordUtils';
 
 // Palette des degrés proposés. Modifie ce tableau pour ajouter/retirer des boutons.
 const MAJEUR: string[] = ['I', 'ii', 'iii', 'IV', 'V', 'vi', 'vii°'];
 const MINEURNAT: string[] = ['i', 'ii°', 'III', 'iv', 'v', 'VI', 'VII'];
-
-type ScaleChoice = 'majeur' | 'mineur';
 
 // Les 2 boutons de choix de gamme, affichés avant la palette de degrés.
 const SCALES: { label: string; value: ScaleChoice }[] = [
@@ -27,51 +24,9 @@ const DEGREES_BY_SCALE: Record<ScaleChoice, string[]> = {
 // Tonalités proposées pour le choix de tonique. Ajoute des notes ici pour étendre le choix.
 const TONICS: string[] = ['C', 'G', 'D', 'A', 'E', 'F'];
 
-// Traduit notre nom de gamme interne vers le nom que Tonal.js attend
-// (Scale.get reconnaît "major" et "minor", ce dernier désignant la gamme
-// mineure naturelle, c'est-à-dire l'aeolien).
-const TONAL_SCALE_NAME: Record<ScaleChoice, string> = {
-  majeur: 'major',
-  mineur: 'minor',
-};
-
-// Position (0 à 6) de chaque degré romain dans la gamme, indépendamment de la casse.
-const ROMAN_TO_INDEX: Record<string, number> = {
-  i: 0,
-  ii: 1,
-  iii: 2,
-  iv: 3,
-  v: 4,
-  vi: 5,
-  vii: 6,
-};
-
-// Calcule l'accord concret (ex: "F", "Am", "Bdim") correspondant à un degré,
-// dans une gamme et une tonalité données.
-//
-// 1) Scale.get(`${tonic} ${scaleName}`).notes : Tonal construit la gamme
-//    demandée (majeure ou mineure naturelle) à partir de la tonique et
-//    renvoie ses 7 notes, dans l'ordre.
-// 2) On repère l'index du degré (I → 0, ii → 1, ...) pour piocher la bonne
-//    note dans ce tableau : c'est la fondamentale de l'accord.
-// 3) La casse du chiffre romain (majuscule/minuscule) et le "°" nous disent
-//    si l'accord est majeur, mineur ou diminué.
-// 4) Chord.get(`${root}${suffix}`) fait construire l'accord par Tonal et
-//    nous renvoie, entre autres, son "symbol" : le nom concret et lisible
-//    de l'accord (ex: "Am", "Bdim").
-function degreeToChord(degree: string, scale: ScaleChoice, tonic: string): string {
-  const scaleNotes = Scale.get(`${tonic} ${TONAL_SCALE_NAME[scale]}`).notes;
-
-  const romanPart = degree.replace('°', '');
-  const index = ROMAN_TO_INDEX[romanPart.toLowerCase()];
-  const root = scaleNotes[index];
-
-  const isDiminished = degree.includes('°');
-  const isUppercase = romanPart === romanPart.toUpperCase();
-  const suffix = isDiminished ? 'dim' : isUppercase ? '' : 'm';
-
-  return Chord.get(`${root}${suffix}`).symbol;
-}
+// degreeToChord (degré + gamme + tonique → accord concret) vit maintenant
+// dans chordUtils.ts, partagée avec improResult.tsx (voir son enrichissement
+// par 7e diatonique) plutôt que dupliquée ici.
 
 export default function CreationScreen() {
   const [scale, setScale] = useState<ScaleChoice | null>(null);
@@ -256,7 +211,13 @@ content: {
   },
   chordBlock: {
      width: '90%',
-    alignItems: 'center',
+    // Pas de alignItems: 'center' ici : PianoChord mesure la largeur
+    // réellement disponible dans son conteneur parent direct via onLayout
+    // (voir son commentaire dans PianoChord.tsx) pour ne jamais déborder —
+    // ça suppose que ce parent le laisse s'étirer sur toute sa largeur
+    // (comportement par défaut) plutôt que le recroqueviller sur son
+    // contenu. Le texte (chordBlockLabel) reste centré via son propre
+    // textAlign, plus besoin de le faire porter par ce conteneur.
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
     padding: theme.spacing.md,
@@ -265,6 +226,7 @@ content: {
     borderColor: theme.colors.border,
   },
   chordBlockLabel: {
+    textAlign: 'center',
     fontSize: theme.text.size.lg,
     fontWeight: theme.text.weight.semibold,
     color: theme.colors.text,
