@@ -1,16 +1,61 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import RootNavigator from './src/navigation/RootNavigator';
+import AuthStack from './src/navigation/AuthStack';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { theme } from './src/theme';
+
+// AIGUILLAGE CONDITIONNEL — enveloppe la navigation EXISTANTE (RootNavigator,
+// inchangé) plutôt que de la réécrire : ce composant choisit juste LEQUEL
+// des deux navigateurs racine afficher, selon l'état d'auth lu via useAuth()
+// (voir AuthContext.tsx) :
+// - isLoading (vérification de session en cours, au tout premier lancement
+//   de l'app) → spinner plein écran, pour éviter un flash de l'écran de
+//   connexion avant même de savoir si une session existait déjà.
+// - user connu → RootNavigator (l'app normale, onglets Accueil/Exercices...).
+// - user === null → AuthStack (SignIn/SignUp).
+// Aucune navigation manuelle nécessaire pour basculer de l'un à l'autre :
+// AuthContext met "user" à jour tout seul dès qu'une connexion/inscription/
+// déconnexion aboutit (onAuthStateChange), ce qui refait juste re-render ce
+// composant avec la bonne branche.
+function RootNavigation() {
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  return user ? <RootNavigator /> : <AuthStack />;
+}
 
 export default function App() {
   return (
     <SafeAreaProvider>
-      <NavigationContainer>
-        <RootNavigator />
-        <StatusBar style="auto" />
-      </NavigationContainer>
+      {/* AuthProvider tout en haut, au-dessus de NavigationContainer : c'est
+          ce qui rend useAuth() disponible dans RootNavigation ci-dessus (et,
+          plus tard, dans n'importe quel écran de l'app qui en aurait besoin). */}
+      <AuthProvider>
+        <NavigationContainer>
+          <RootNavigation />
+          <StatusBar style="auto" />
+        </NavigationContainer>
+      </AuthProvider>
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingScreen: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.background,
+  },
+});

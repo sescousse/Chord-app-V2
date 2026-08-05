@@ -1,6 +1,7 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { theme } from '../theme';
+import { supabase } from '../lib/supabase';
 
 // --- DONNÉES EN DUR — BLOC 1 (en-tête profil) -------------------------------
 // données en dur, à remplacer plus tard (vraie identité une fois l'auth/
@@ -60,6 +61,16 @@ const ACHIEVEMENTS: Achievement[] = [
 ];
 
 export default function ProfileScreen() {
+  // Pas de navigation manuelle après la déconnexion : signOut() vide la
+  // session Supabase, ce qui déclenche onAuthStateChange dans AuthContext
+  // et fait basculer tout seul l'aiguillage racine (App.tsx) vers AuthStack.
+  const handleSignOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      Alert.alert('Erreur', error.message);
+    }
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* BLOC 1 — EN-TÊTE PROFIL : avatar (placeholder), nom, actions
@@ -171,6 +182,14 @@ export default function ProfileScreen() {
           ))}
         </View>
       </View>
+
+      {/* Déconnexion — placée ici (accessible depuis l'onglet bannière
+          "Profil" de l'accueil) pour pouvoir tester le socle d'auth de bout
+          en bout. Bouton "danger" hors des 2 cartes ci-dessus : ce n'est ni
+          une info de profil ni un récap, une action de compte à part. */}
+      <Pressable style={styles.signOutButton} onPress={handleSignOut}>
+        <Text style={styles.signOutButtonLabel}>Se déconnecter</Text>
+      </Pressable>
     </ScrollView>
   );
 }
@@ -361,5 +380,20 @@ const styles = StyleSheet.create({
   },
   achievementTitleLocked: {
     color: theme.colors.locked,
+  },
+  // Bordure "danger" plutôt qu'un fond plein : une action de déconnexion
+  // n'est pas une erreur, mais reste une action qu'on ne veut pas confondre
+  // visuellement avec le bouton primaire "Ajouter des amis" ci-dessus.
+  signOutButton: {
+    alignItems: 'center',
+    paddingVertical: theme.spacing.md,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.danger,
+  },
+  signOutButtonLabel: {
+    fontSize: theme.text.size.md,
+    fontWeight: theme.text.weight.semibold,
+    color: theme.colors.danger,
   },
 });
