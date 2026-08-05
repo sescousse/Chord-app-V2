@@ -5,7 +5,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { theme } from '../theme';
 import { UNIT_1, UNIT_1_TITLE, UNIT_2, UNIT_2_TITLE, type Step } from '../dataset/courseTheorie';
-import type { CourseStackParamList } from '../navigation/CourseStack';
+import type { HomeStackParamList } from '../navigation/HomeStack';
 import { UnitHeader } from '../components/UnitHeader';
 
 // Au bout de combien de temps SANS nouvel évènement onScroll on considère que
@@ -15,9 +15,15 @@ import { UnitHeader } from '../components/UnitHeader';
 // intervalle entre deux évènements.
 const SCROLL_SETTLE_DELAY_MS = 120;
 
+// Ce composant n'est PAS une route de pile à part entière : la bannière de
+// HomeScreen le rend comme simple enfant DANS l'écran "HomeMain" (voir
+// HomeStack.tsx et le commentaire dans HomeScreen.tsx) — d'où 'HomeMain'
+// (pas 'CourseParcours', qui n'existe plus) en second paramètre : c'est
+// depuis CET écran-hôte que ce composant hérite son contexte de navigation,
+// et donc son accès à navigation.navigate('Lesson', ...) ci-dessous.
 type CourseParcoursScreenNavigationProp = NativeStackNavigationProp<
-  CourseStackParamList,
-  'CourseParcours'
+  HomeStackParamList,
+  'HomeMain'
 >;
 
 // Alignement horizontal successif des noeuds, pour donner l'effet de chemin

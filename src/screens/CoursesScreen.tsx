@@ -1,25 +1,12 @@
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { theme } from '../theme';
-import type { CourseStackParamList } from '../navigation/CourseStack';
 
-type CoursesScreenNavigationProp = NativeStackNavigationProp<CourseStackParamList, 'CoursesList'>;
-
-// Routes de CourseStack qui ne demandent AUCUN paramètre (ex: "CoursesList",
-// "CourseParcours"), à l'exclusion de routes comme "Lesson" qui, elle,
-// exige un paramètre "lesson". C'est nécessaire depuis l'ajout de "Lesson" à
-// CourseStackParamList : naviguer en un seul argument
-// (navigation.navigate(course.screen), sans rien d'autre) n'est possible que
-// vers une route sans paramètre — TypeScript refuserait sinon un
-// course.screen qui pourrait valoir "Lesson". Calculé automatiquement à
-// partir de CourseStackParamList plutôt qu'énuméré à la main, pour rester
-// juste si de nouvelles routes sont ajoutées plus tard.
-type NoParamRouteName = {
-  [RouteName in keyof CourseStackParamList]: CourseStackParamList[RouteName] extends undefined
-    ? RouteName
-    : never;
-}[keyof CourseStackParamList];
+// ⚠️ Écran actuellement ORPHELIN : plus aucune route/navigateur ne pointe
+// vers lui depuis la refonte de navigation (banniere Parcours/Bibliothèque/
+// Compétences/Perso dans HomeScreen.tsx, qui affiche CourseParcoursScreen
+// directement plutôt que de passer par cette liste groupée par niveau — voir
+// HomeStack.tsx). Conservé tel quel (contenu des 11 cours intact) plutôt que
+// supprimé, au cas où il faille le rebrancher quelque part plus tard.
 
 // Niveau d'un cours. L'ordre des sections affichées est décidé séparément
 // par LEVELS (juste en dessous), pas par cet ordre-ci.
@@ -30,14 +17,6 @@ type Course = {
   title: string;
   level: Level;
   accentColor: string;
-  // Optionnel, et typé sur les routes RÉELLEMENT déclarées dans CourseStack
-  // qui n'attendent pas de paramètre (NoParamRouteName, voir plus haut)
-  // plutôt qu'un simple "string" : ça garde navigation.navigate(course.screen)
-  // type-safe, comme avant. Les écrans de ces 11 cours n'existent pas
-  // encore, donc aucun n'a ce champ pour l'instant ; il suffira de l'ajouter
-  // (avec la route correspondante dans CourseStack) pour brancher un cours
-  // plus tard.
-  screen?: NoParamRouteName;
 };
 
 // Titre de section affiché pour chaque niveau, DANS L'ORDRE où les sections
@@ -54,7 +33,7 @@ const LEVELS: { level: Level; title: string }[] = [
 // contentent de filtrer ce tableau par niveau, aucune donnée dupliquée
 // ailleurs.
 const COURSES: Course[] = [
-  { id: 'theorie-impro', title: "Théorie pour l'impro", level: 'debutant', accentColor: theme.colors.primary, screen: 'CourseParcours' },
+  { id: 'theorie-impro', title: "Théorie pour l'impro", level: 'debutant', accentColor: theme.colors.primary },
   { id: 'socle-improvisation', title: "Socle de l'improvisation", level: 'debutant', accentColor: theme.colors.primary },
   { id: 'accords', title: 'Tout sur les accords', level: 'intermediaire', accentColor: theme.colors.primary },
   { id: 'rythme-groove', title: 'Rythme et groove', level: 'debutant', accentColor: theme.colors.primary },
@@ -68,14 +47,10 @@ const COURSES: Course[] = [
 ];
 
 export default function CoursesScreen() {
-  const navigation = useNavigation<CoursesScreenNavigationProp>();
-
+  // Écran orphelin (voir note en haut de fichier) : aucun de ces 11 cours ne
+  // mène encore à un écran réel, un console.log suffit comme placeholder.
   const openCourse = (course: Course) => {
-    if (course.screen) {
-      navigation.navigate(course.screen);
-    } else {
-      console.log(course.title);
-    }
+    console.log(course.title);
   };
 
   return (

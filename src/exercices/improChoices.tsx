@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
   },
   // Pas de token "texte sur fond coloré" dans le thème : blanc en dur, comme
   // déjà fait ailleurs pour ce même besoin (ex: LessonCourseScreen,
-  // CoursesHubScreen).
+  // CourseParcoursScreen).
   seeButtonLabel: {
     fontSize: theme.text.size.lg,
     fontWeight: theme.text.weight.semibold,

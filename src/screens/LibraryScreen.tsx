@@ -3,8 +3,8 @@ import { StyleSheet, Text, View } from 'react-native';
 import { theme } from '../theme';
 
 // Coquille pour l'instant : le contenu réel (cours de référence détaillés)
-// n'est pas encore construit, seul l'écran et sa route existent (voir
-// CourseStack.tsx, carte "Bibliothèque" de CoursesHubScreen).
+// n'est pas encore construit, seul l'écran existe (affiché depuis l'onglet
+// "Bibliothèque" de la bannière de HomeScreen.tsx).
 export default function LibraryScreen() {
   return (
     <View style={styles.container}>

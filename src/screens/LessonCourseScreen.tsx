@@ -4,17 +4,17 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { theme } from '../theme';
-import type { CourseStackParamList } from '../navigation/CourseStack';
+import type { HomeStackParamList } from '../navigation/HomeStack';
 import type { CoursePage } from '../dataset/courseTheorie';
 import LessonIntroScreen from './LessonIntroScreen';
 import { InteractivePiano } from '../components/InteractivePiano';
 
-// NativeStackScreenProps<CourseStackParamList, 'Lesson'> donne à la fois
+// NativeStackScreenProps<HomeStackParamList, 'Lesson'> donne à la fois
 // "route" (la Lesson complète voyage en paramètre de navigation, voir
 // CourseParcoursScreen.handleStepPress — pas besoin d'aller la rechercher
 // ailleurs par id) et "navigation" (utilisé ici pour revenir au parcours
 // via goBack() une fois la dernière page terminée).
-type LessonCourseScreenProps = NativeStackScreenProps<CourseStackParamList, 'Lesson'>;
+type LessonCourseScreenProps = NativeStackScreenProps<HomeStackParamList, 'Lesson'>;
 
 export default function LessonCourseScreen({ route, navigation }: LessonCourseScreenProps) {
   const { lesson } = route.params;
@@ -29,7 +29,7 @@ export default function LessonCourseScreen({ route, navigation }: LessonCourseSc
   const [showIntro, setShowIntro] = useState(true);
 
   // Le header natif et la tab bar sont masqués sur cet écran (voir
-  // CourseStack.tsx / RootNavigator.tsx) : la barre du haut (titre + cœurs)
+  // HomeStack.tsx / RootNavigator.tsx) : la barre du haut (titre + cœurs)
   // se retrouve donc collée au vrai bord de l'écran, sous l'encoche/l'heure
   // du système. useSafeAreaInsets() donne la hauteur de cette zone système
   // (insets.top) pour l'ajouter en paddingTop de la barre du haut, en plus

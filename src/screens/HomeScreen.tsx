@@ -1,23 +1,353 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { theme } from '../theme';
+import CourseParcoursScreen from './CourseParcoursScreen';
+import LibraryScreen from './LibraryScreen';
+import ProfileScreen from './ProfileScreen';
+
+// Icône flamme : @expo/vector-icons n'est pas installé dans ce projet
+// (vérifié : absent de package.json et node_modules) — repli emoji, même
+// convention déjà utilisée ailleurs dans l'app pour ce même besoin (ex: les
+// cœurs de LessonCourseScreen, les icônes des boutons d'action de
+// improResult.tsx).
+const STREAK_ICON = '🔥';
+
+// Nombre de jours de connexion d'affilée — données EN DUR, à remplacer par
+// la vraie streak plus tard (ex: calculée depuis un historique de sessions
+// une fois la persistance branchée). Constante séparée (plutôt que directement
+// dans STATS ci-dessous) car réutilisée à 2 endroits : la carte héros ET la
+// grille de statistiques — une seule source de vérité pour cette valeur.
+const streakDays = 5;
+
+// Statistiques du bloc "Statistiques" — données EN DUR pour l'instant
+// (aucune persistance encore). Un seul objet, une clé par statistique :
+// remplacer STATS (ou une seule de ses valeurs) suffira à brancher les
+// vraies données plus tard, sans toucher au rendu plus bas.
+const STATS = {
+  exercisesDone: 12,
+  lessonsRead: 4,
+  avgDailyPracticeMinutes: 18,
+  totalXp: 1240,
+  streakDays,
+};
+
+type StatDisplayItem = {
+  id: string;
+  icon: string;
+  label: string;
+  value: string;
+};
+
+// Config d'AFFICHAGE de chaque statistique (icône + libellé + valeur déjà
+// mise en forme) : dérivée de STATS ci-dessus, jamais de valeur retapée à la
+// main — remplacer STATS met donc aussi à jour l'affichage automatiquement.
+const STAT_DISPLAY_ITEMS: StatDisplayItem[] = [
+  { id: 'exercises', icon: '🏋️', label: 'Exercices faits', value: String(STATS.exercisesDone) },
+  { id: 'lessons', icon: '📖', label: 'Cours lus', value: String(STATS.lessonsRead) },
+  {
+    id: 'avgTime',
+    icon: '⏱️',
+    label: 'Temps moyen / jour',
+    value: `${STATS.avgDailyPracticeMinutes} min`,
+  },
+  { id: 'xp', icon: '⭐', label: 'XP total', value: STATS.totalXp.toLocaleString('fr-FR') },
+  { id: 'streak', icon: STREAK_ICON, label: 'Streak', value: `${STATS.streakDays} j` },
+];
+
+// --- BANNIÈRE DE SOUS-NAVIGATION ---------------------------------------
+// 4 onglets pilotés par un simple state local (PAS un navigateur : consigne
+// explicite de ne pas ajouter de dépendance de navigation pour ça) — changer
+// d'onglet ne fait donc jamais naviguer nulle part, seul le contenu rendu
+// sous la bannière change (voir le switch dans le composant plus bas).
+// BANNER_TABS pilote à la fois l'ordre et le libellé affiché : un seul
+// tableau à modifier pour ajouter/renommer/réordonner un onglet.
+type TabKey = 'parcours' | 'bibliotheque' | 'competences' | 'profil';
+
+interface BannerTab {
+  key: TabKey;
+  label: string;
+}
+
+const BANNER_TABS: BannerTab[] = [
+  { key: 'parcours', label: 'Parcours' },
+  { key: 'bibliotheque', label: 'Bibliothèque' },
+  { key: 'competences', label: 'Compétences' },
+  { key: 'profil', label: 'Profil' },
+];
 
 export default function HomeScreen() {
+  const insets = useSafeAreaInsets();
+
+  // Onglet actif de la bannière. "competences" par défaut : c'est le contenu
+  // d'accueil d'origine (streak + stats + TODO objectifs/arbre), inchangé
+  // ci-dessous.
+  const [activeTab, setActiveTab] = useState<TabKey>('competences');
+
   return (
-    <View style={styles.container}>
-      <Text style={theme.text.title}>Piano App</Text>
-      <Text style={theme.text.subtitle}>Bienvenue ! Tes cours et exercices apparaîtront ici.</Text>
+    <View style={styles.screen}>
+      {/* EN-TÊTE DE PAGE — barre de titre à part, EMPILÉE au-dessus de la
+          bannière de sous-navigation (juste en dessous) plutôt que fusionnée
+          avec elle : "Accueil" deviendra le nom de l'app plus tard, la zone
+          de droite (styles.pageHeaderRight) est prévue pour les futurs
+          éléments (monnaie, clés, réglages — voir le TODO dans le JSX),
+          actuellement vide. C'est CET en-tête qui gère maintenant la safe
+          area (paddingTop = insets.top + spacing, comme la topBar de
+          LessonCourseScreen) puisqu'il est désormais le tout premier élément
+          en haut de l'écran ; la bannière juste en dessous n'a donc plus
+          besoin de son propre padding de sécurité. */}
+      <View style={[styles.pageHeader, { paddingTop: insets.top + theme.spacing.md }]}>
+        <Text style={theme.text.title}>Accueil</Text>
+        <View style={styles.pageHeaderRight}>{/* TODO: monnaie, clés, réglages */}</View>
+      </View>
+
+      {/* BANNIÈRE — rangée de 4 onglets cliquables, l'onglet actif souligné
+          avec l'accent du thème (theme.colors.primary, déjà la couleur
+          "active" de la tab bar du bas, voir RootNavigator.tsx : cohérent
+          avec ce que l'app utilise déjà pour "onglet sélectionné"). Pas de
+          nouveau token nécessaire : composée à partir de tokens existants
+          (surface/border/primary/textMuted), comme d'autres styles "sans
+          équivalent direct" ailleurs dans l'app (ex: le bouton de
+          LessonCourseScreen). Zone de contenu de la page (au même titre que
+          Parcours/Bibliothèque/...), PAS de la chrome système : elle vient
+          sous l'en-tête ci-dessus, qui s'occupe seul de la safe area. */}
+      <View style={styles.banner}>
+        {BANNER_TABS.map((tab) => {
+          const isActive = tab.key === activeTab;
+          return (
+            <Pressable
+              key={tab.key}
+              style={[styles.bannerTab, isActive && styles.bannerTabActive]}
+              onPress={() => setActiveTab(tab.key)}
+            >
+              <Text style={[styles.bannerTabLabel, isActive && styles.bannerTabLabelActive]}>
+                {tab.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* REBRANCHEMENT Parcours / Bibliothèque : ces 2 onglets rendent les
+          écrans existants DIRECTEMENT comme de simples composants enfants
+          (pas de navigation.navigate) — c'est ce qui permet à la bannière de
+          rester un simple state, sans navigateur dédié. CourseParcoursScreen
+          garde malgré tout un accès normal à la navigation (useNavigation) :
+          comme il est rendu ici, à l'intérieur de l'écran "HomeMain" de
+          HomeStack (voir navigation/HomeStack.tsx), il hérite du contexte de
+          navigation de CETTE pile, et son navigation.navigate('Lesson', ...)
+          continue donc de fonctionner exactement comme avant (ouvre bien la
+          leçon plein écran, tab bar masquée — voir RootNavigator.tsx). */}
+      {activeTab === 'parcours' && <CourseParcoursScreen />}
+      {activeTab === 'bibliotheque' && <LibraryScreen />}
+      {/* "Profil" : rend ProfileScreen, qui contient maintenant la vraie page
+          profil (avatar, récap, succès) — l'ancien onglet "Profil" de la
+          barre du bas a été retiré (voir RootNavigator.tsx), ce composant
+          est réutilisé tel quel ici. Écran autonome, sans prop ni dépendance
+          de navigation propre, donc directement affichable comme n'importe
+          quel composant enfant. */}
+      {activeTab === 'profil' && <ProfileScreen />}
+
+      {activeTab === 'competences' && (
+        <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+          {/* BLOC STREAK — tout en haut : l'accroche de la page (voir
+              streakAccent dans colors.ts, un accent volontairement fort/
+              détonnant pour cette seule carte). */}
+          <View style={[styles.card, styles.streakCard]}>
+            <Text style={styles.streakIcon}>{STREAK_ICON}</Text>
+            <View style={styles.streakTextGroup}>
+              <Text style={styles.streakValue}>{streakDays} jours</Text>
+              <Text style={styles.streakLabel}>de connexion d'affilée</Text>
+            </View>
+          </View>
+
+          {/* TODO: bloc objectifs */}
+
+          {/* TODO: bloc arbre de compétences */}
+
+          {/* BLOC STATISTIQUES */}
+          <View style={styles.card}>
+            <Text style={theme.text.title}>Statistiques</Text>
+
+            {/* Grille 2 colonnes qui wrappe proprement (voir statsGrid/statTile
+                dans la feuille de style pour le détail du calcul). */}
+            <View style={styles.statsGrid}>
+              {STAT_DISPLAY_ITEMS.map((item) => (
+                <View key={item.id} style={styles.statTile}>
+                  <Text style={styles.statIcon}>{item.icon}</Text>
+                  <Text style={styles.statValue}>{item.value}</Text>
+                  <Text style={styles.statLabel}>{item.label}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        </ScrollView>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Conteneur racine de l'écran : la bannière et la zone de contenu (l'un
+  // des 4 onglets) empilés verticalement, plein écran.
+  screen: {
+    flex: 1,
+    backgroundColor: theme.colors.background,
+  },
+  // Barre de titre, distincte de la bannière d'onglets juste en dessous
+  // (voir styles.banner) : même fond (theme.colors.surface) et même type de
+  // séparation (bordure basse) que la bannière, pour rester visuellement de
+  // la même famille "chrome du haut" tout en restant 2 blocs empilés
+  // séparés (la bordure de CHACUN des deux les délimite l'un de l'autre).
+  pageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: theme.colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.lg,
+    paddingBottom: theme.spacing.md,
+  },
+  // Zone réservée aux futurs éléments de droite (monnaie, clés, réglages) :
+  // vide pour l'instant, donc sans dimension propre — "row" + "gap" déjà en
+  // place pour quand plusieurs éléments y seront ajoutés côte à côte, sans
+  // rien à retoucher ici à ce moment-là.
+  pageHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  banner: {
+    flexDirection: 'row',
+    backgroundColor: theme.colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  bannerTab: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: theme.spacing.md,
+    borderBottomWidth: 3,
+    borderBottomColor: 'transparent',
+  },
+  bannerTabActive: {
+    borderBottomColor: theme.colors.primary,
+  },
+  bannerTabLabel: {
+    fontSize: theme.text.size.sm,
+    fontWeight: theme.text.weight.medium,
+    color: theme.colors.textMuted,
+  },
+  bannerTabLabelActive: {
+    color: theme.colors.primary,
+    fontWeight: theme.text.weight.bold,
+  },
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: theme.spacing.sm,
+  },
+  // "Espacement généreux" entre les blocs, comme demandé : theme.spacing.xl,
+  // le plus grand token d'espacement du thème.
+  content: {
     padding: theme.spacing.lg,
+    gap: theme.spacing.xl,
+  },
+  // Carte de base réutilisée par tous les blocs (streak, stats, et les
+  // futurs blocs objectifs/arbre de compétences) : fond de carte du thème,
+  // coins arrondis, ombre légère.
+  //
+  // Pas de token "ombre de carte" dans le thème (à signaler) : shadowColor
+  // en noir est la valeur standard/attendue pour ce type d'effet quelle que
+  // soit la palette de couleurs (ce n'est pas vraiment un choix de TEINTE
+  // thématique, contrairement à un fond ou un texte) — shadowOpacity/
+  // shadowRadius/elevation réglés pour un effet volontairement LÉGER, pas
+  // prononcé.
+  card: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.xl,
+    padding: theme.spacing.lg,
+    gap: theme.spacing.sm,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  streakCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.md,
+    backgroundColor: theme.colors.streakAccent,
+  },
+  streakIcon: {
+    fontSize: theme.text.size.xxxl,
+  },
+  streakTextGroup: {
+    flex: 1,
+    gap: theme.spacing.xs,
+  },
+  // Pas de token "texte sur fond coloré" dans le thème (theme.colors.text
+  // est pensé pour du texte sur le fond neutre de l'app) : blanc en dur ici,
+  // comme déjà fait ailleurs dans l'app pour ce même besoin (ex:
+  // LessonCourseScreen, improResult.tsx).
+  streakValue: {
+    fontSize: theme.text.size.xxl,
+    fontWeight: theme.text.weight.bold,
+    color: '#FFFFFF',
+  },
+  streakLabel: {
+    fontSize: theme.text.size.md,
+    fontWeight: theme.text.weight.medium,
+    color: '#FFFFFF',
+  },
+  // flexDirection: 'row' + flexWrap: 'wrap' : les tuiles se placent côte à
+  // côte et reviennent à la ligne automatiquement dès qu'il n'y a plus de
+  // place, plutôt que de s'empiler en colonne. PAS de "gap" ici
+  // (volontairement — voir le commentaire sur statTile.width juste en
+  // dessous pour le pourquoi) : justifyContent: 'space-between' suffit à
+  // espacer les 2 tuiles de chaque ligne, en calculant cet espace comme une
+  // FRACTION de la largeur réelle du conteneur plutôt qu'une valeur fixe.
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  // Fond theme.colors.background (pas surface, la couleur de la carte
+  // parente "Statistiques") : détache visuellement chaque tuile de la carte
+  // qui la contient, plutôt que de se fondre dedans.
+  //
+  // width: '48%' (2 tuiles par ligne) SANS "gap" sur le conteneur parent :
+  // un "gap" ajoute un espacement FIXE (en px) EN PLUS des largeurs déjà
+  // spécifiées — combiné à des largeurs en pourcentage (48%+48% = 96% de la
+  // largeur du conteneur), ce pixel supplémentaire peut dépasser les 100%
+  // restants sur un écran étroit, ce qui forçait chaque tuile à revenir à la
+  // ligne toute seule (le bug corrigé ici : un empilement en colonne au lieu
+  // d'une grille 2 colonnes). marginBottom fournit l'espacement VERTICAL
+  // entre les lignes qui reviennent à la ligne (justifyContent:
+  // 'space-between', lui, ne gère que l'espacement HORIZONTAL au sein d'une
+  // même ligne, jamais l'espace entre 2 lignes).
+  statTile: {
+    width: '48%',
+    marginBottom: theme.spacing.md,
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    backgroundColor: theme.colors.background,
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.md,
+  },
+  statIcon: {
+    fontSize: theme.text.size.xl,
+  },
+  statValue: {
+    fontSize: theme.text.size.lg,
+    fontWeight: theme.text.weight.bold,
+    color: theme.colors.text,
+  },
+  statLabel: {
+    fontSize: theme.text.size.sm,
+    color: theme.colors.textMuted,
+    textAlign: 'center',
   },
 });

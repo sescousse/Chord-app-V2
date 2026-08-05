@@ -1,13 +1,13 @@
 // Change these values to re-theme the whole app.
 export const colors = {
-  background: 'rgb(107, 73, 49)',
-  surface: 'rgb(90, 44, 25)',
-  text: '#ffffff',
+  background: '#34312e',
+  surface: '#a345e1',
+  text: '#fcfcfc',
   textMuted: '#6B6B6F',
-  primary: '#de8406',
+  primary: '#7400c1',
   border: '#000000',
-  exercice: 'rgb(235, 177, 1)',
-  backGroundExercice: 'rgb(128, 93, 42)',
+  exercice: 'rgb(14, 14, 13)',
+  backGroundExercice: '#a345e1',
   // Gris neutre pour tout élément "verrouillé/désactivé" (ex: les étapes
   // verrouillées de CourseParcoursScreen) : ni "border" ni "textMuted" ne
   // conviennent ici, tous deux réutilisés pour d'autres usages (contours,
@@ -20,11 +20,25 @@ export const colors = {
   // propre sémantique (accent "exercice"), sans rapport avec ce détail
   // décoratif du clavier.
   pianoStrip: '#C41E3A',
+  // Accent "flamme" du bloc streak de HomeScreen : un orange chaud,
+  // volontairement DÉTONNANT avec le reste de la palette (dominée par des
+  // violets froids, voir "surface"/"primary" ci-dessus) — la carte streak
+  // doit être l'accroche visuelle la plus forte de la page, aucun autre
+  // token existant (surface/primary/exercice...) n'a cette fonction "carte
+  // héros qui doit sauter aux yeux".
+  streakAccent: '#FF6B35',
+  // Fond de la pastille icône des succès DÉBLOQUÉS (écran Profil) : doré,
+  // la teinte "trophée/récompense" attendue pour ce genre de badge — aucun
+  // token existant n'a cette connotation (primary/exercice/streakAccent
+  // portent chacun leur propre sémantique, sans rapport avec "récompense").
+  // Le cas "verrouillé" n'a PAS besoin d'un second token : il réutilise
+  // "locked" ci-dessus, déjà pensé pour "verrouillé/désactivé" en général.
+  achievementUnlocked: '#FFC107',
 };
 
 // Style de la barre de navigation du bas (tab bar).
 export const tabBar = {
-  backgroundColor: '#93682f',
+  backgroundColor: '#0b0a0a',
   borderTopColor: colors.border,
 };
 

@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { theme } from '../theme';
 import { PianoChord } from '../components/PianoChord';
+import { SlidePanel } from '../components/SlidePanel';
 import {
   bassAndClusterVoicing,
   buildExtendedChord,
@@ -17,6 +19,7 @@ import {
   type ScaleChoice,
 } from '../dataset/chordUtils';
 import { ACCOMPANIMENTS, resolveStepNotes, type TriadNotes } from '../dataset/accompaniments';
+import { CADENCES, findExistingCadence, withCadence } from '../dataset/cadences';
 import { PROGRESSIONS } from '../dataset/progression';
 import type { ExercisesStackParamList } from '../navigation/ExercisesStack';
 // improEmotion.tsx a été supprimé (fusionné avec l'ancien improStyle.tsx dans
@@ -63,6 +66,14 @@ const ENRICHMENT_LEVELS: { label: string; value: ExtensionLevel }[] = [
 ];
 
 type ImproResultRoute = RouteProp<ExercisesStackParamList, 'ImproResult'>;
+type ImproResultNavigation = NativeStackNavigationProp<ExercisesStackParamList, 'ImproResult'>;
+
+// Taille des carrés de degré (voir styles.degreeSquare, section MILIEU de
+// l'écran) : pas de token de taille dédié dans le thème, donc composé à
+// partir de spacing.xl — même formule que LESSON_NODE_SIZE dans
+// CourseParcoursScreen (theme.spacing.xl * 2), pour un "noeud" cliquable
+// d'une taille cohérente avec le reste de l'app.
+const DEGREE_SQUARE_SIZE = theme.spacing.xl * 2;
 
 // Identifie UN degré précis affiché à l'écran : sa progression (son index
 // dans filteredProgressions) et sa position dans cette progression (son
@@ -181,8 +192,8 @@ function ExpandedChordPanel({ degree, scale, tonic, level, onSelectLevel }: Expa
           fraîchement reçues, ce qui n'a pas de sens (voir aussi le
           verrouillage des renversements dans PianoChord pour un voicing). */}
       {/* showArpeggioButton={false} : l'accompagnement (arpège) se découvre
-          désormais uniquement via la modale "Découvrir un accompagnement"
-          (voir AccompanimentModal plus bas) — ce panneau garde ses
+          désormais uniquement via le panneau "Découvrir un accompagnement"
+          (voir AccompanimentPanelContent plus bas) — ce panneau garde ses
           contrôles de renversement (showInversionControls par défaut,
           inchangé) mais n'affiche plus son propre bouton d'arpège. */}
       <PianoChord
@@ -250,13 +261,13 @@ function ExpandedChordPanel({ degree, scale, tonic, level, onSelectLevel }: Expa
 // de la table (voir resolveStepNotes, ../dataset/accompaniments.ts).
 const EXAMPLE_TRIAD: TriadNotes = { root: 'C3', third: 'E3', fifth: 'G3' };
 
-// Définition GÉNÉRALE du voicing, affichée en haut de VoicingModal quel que
-// soit le voicing sélectionné (voir VOICING_OPTIONS plus bas pour
+// Définition GÉNÉRALE du voicing, affichée en haut de VoicingPanelContent
+// quel que soit le voicing sélectionné (voir VOICING_OPTIONS plus bas pour
 // l'explication SPÉCIFIQUE à chacun).
 const VOICING_EXPLANATION =
   "Un voicing, c'est une façon de répartir les notes d'un accord sur le clavier — leur ordre et leur répartition entre les octaves, sans jamais changer les notes elles-mêmes. Le même accord peut ainsi sonner plus serré ou plus ouvert, plus grave ou plus équilibré entre les deux mains.";
 
-// Accord d'exemple FIXE de VoicingModal : Cmaj7 empilé (Do-Mi-Sol-Si), à
+// Accord d'exemple FIXE de VoicingPanelContent : Cmaj7 empilé (Do-Mi-Sol-Si), à
 // l'état fondamental. Les 3 voicings de VOICING_OPTIONS ci-dessous en sont
 // tous dérivés (via dropTwoVoicing/bassAndClusterVoicing, ../dataset/
 // chordUtils.ts) plutôt que d'avoir chacun leurs notes tapées à la main :
@@ -273,8 +284,8 @@ type VoicingOption = {
   notes: string[];
 };
 
-// Les 3 voicings proposés dans VoicingModal. Choisis manuellement via des
-// boutons (voir VoicingModal) plutôt qu'animés automatiquement : chaque
+// Les 3 voicings proposés dans VoicingPanelContent. Choisis manuellement via
+// des boutons (voir VoicingPanelContent) plutôt qu'animés automatiquement : chaque
 // voicing est une DISPOSITION différente du MÊME accord fixe
 // (EXAMPLE_CMAJ7_NOTES), jamais un accord différent.
 const VOICING_OPTIONS: VoicingOption[] = [
@@ -301,46 +312,38 @@ const VOICING_OPTIONS: VoicingOption[] = [
   },
 ];
 
-type AccompanimentModalProps = {
-  onClose: () => void;
+type AccompanimentPanelContentProps = {
+  // Piloté par ResultScreen (isAccompanimentPanelOpen) : ce composant est
+  // rendu comme "children" de SlidePanel, qui reste TOUJOURS monté (voir son
+  // commentaire) — c'est cette prop, pas un montage/démontage, qui dit si le
+  // panneau est réellement ouvert. INDISPENSABLE ici : c'est elle qui
+  // permet d'arrêter le séquenceur d'arpège à la fermeture (voir plus bas).
+  isOpen: boolean;
 };
 
-// Modale "Découvrir un accompagnement" : montre le PRINCIPE de PLUSIEURS
-// accompagnements (voir ACCOMPANIMENTS, ../dataset/accompaniments.ts) sur un
-// accord d'exemple fixe, indépendamment de l'accord sélectionné ailleurs sur
-// l'écran. Navigation par ONGLETS (un par accompagnement de la table) :
-// compact, et montre d'un coup d'œil combien d'accompagnements existent —
-// plus adapté ici que des flèches < > (qui ne montrent qu'un voisin à la
-// fois) pour une table appelée à grandir.
+// Contenu de la modale (désormais panneau) "Découvrir un accompagnement" :
+// montre le PRINCIPE de PLUSIEURS accompagnements (voir ACCOMPANIMENTS,
+// ../dataset/accompaniments.ts) sur un accord d'exemple fixe, indépendamment
+// de l'accord sélectionné ailleurs sur l'écran. Navigation par ONGLETS (un
+// par accompagnement de la table) : compact, et montre d'un coup d'œil
+// combien d'accompagnements existent — plus adapté ici que des flèches < >
+// (qui ne montrent qu'un voisin à la fois) pour une table appelée à grandir.
 //
-// USAGE DE Modal (react-native) : "transparent" laisse voir le fond assombri
-// (styles.modalBackdrop) derrière la carte plutôt qu'un fond opaque plein
-// écran ; "animationType='fade'" pour une apparition douce ; "onRequestClose"
-// est OBLIGATOIRE sur Android (bouton matériel/geste retour) — sans lui,
-// Android planterait ou ignorerait ce bouton ; on lui donne le même
-// gestionnaire que la fermeture normale.
+// N'est QUE le contenu : le glissement, la carte, le bouton fermer et le
+// défilement sont fournis par SlidePanel (voir son utilisation dans
+// ResultScreen) — ce composant ne rend plus de Modal/Pressable de fond lui-
+// même.
 //
-// Fermeture en tapant HORS de la carte : le fond (modalBackdrop) est lui-même
-// un Pressable plein écran avec onPress={onClose}, et la carte au centre est
-// un SECOND Pressable avec un onPress vide — un tap sur la carte est ainsi
-// "consommé" par ce second Pressable et ne déclenche jamais le onPress du
-// fond en dessous (les Pressable de React Native ne laissent pas un tap
-// traverser vers un Pressable parent une fois qu'un Pressable enfant l'a
-// géré), donc taper DANS la carte ne ferme pas la modale, seulement en dehors.
-//
-// NETTOYAGE DES TIMERS (IMPORTANT) : ce composant n'est monté QUE lorsque
-// isAccompanimentModalOpen est vrai côté ResultScreen (voir
-// `{isAccompanimentModalOpen && <AccompanimentModal .../>}`), plutôt que
-// d'être toujours monté avec seulement la prop "visible" du Modal basculée.
-// Ce choix est déterminant pour le nettoyage : le composant Modal de React
-// Native garde son contenu MONTÉ en React même quand sa prop "visible" est
-// fausse (seule sa présentation NATIVE change) — si on se contentait de ça,
-// le séquenceur ci-dessous resterait monté et continuerait de tourner EN
-// ARRIÈRE-PLAN une fois la modale "fermée", sans jamais être nettoyé. En
-// démontant réellement toute la modale à la fermeture, le useEffect de
-// nettoyage du séquenceur (clearTimeout, voir plus bas) s'exécute
-// automatiquement — exactement comme au démontage de l'écran.
-function AccompanimentModal({ onClose }: AccompanimentModalProps) {
+// NETTOYAGE DES TIMERS (IMPORTANT) : contrairement à l'ancienne Modal (qui
+// se démontait entièrement à la fermeture, arrêtant le séquenceur du même
+// coup), ce composant reste TOUJOURS MONTÉ — c'est SlidePanel qui reste
+// monté en permanence pour pouvoir animer sa fermeture, et "children" avec
+// lui (voir le commentaire détaillé dans SlidePanel.tsx). Le séquenceur
+// ci-dessous DOIT donc explicitement s'arrêter tout seul quand "isOpen"
+// repasse à false (voir le "if (!isOpen) return" en tête d'effet), sous
+// peine de continuer à tourner EN ARRIÈRE-PLAN une fois le panneau glissé
+// hors champ, invisible mais toujours actif.
+function AccompanimentPanelContent({ isOpen }: AccompanimentPanelContentProps) {
   // Onglet actif : un INDEX dans ACCOMPANIMENTS plutôt qu'un id — plus
   // simple ici puisque cette table est un tableau fixe local, pas besoin
   // d'une recherche par id. 0 = "Arpège montant", le même accompagnement
@@ -351,26 +354,47 @@ function AccompanimentModal({ onClose }: AccompanimentModalProps) {
   // séquenceur ci-dessous.
   const [stepIndex, setStepIndex] = useState(0);
 
+  // Repart TOUJOURS du 1er accompagnement à l'OUVERTURE (isOpen passant à
+  // true) : ce composant étant désormais toujours monté (voir plus haut),
+  // c'était auparavant le remontage à chaque ouverture qui remettait cet
+  // index à 0 — il faut donc le faire explicitement ici pour garder
+  // exactement le même comportement qu'avant.
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedAccompanimentIndex(0);
+    }
+  }, [isOpen]);
+
   // SÉQUENCEUR : généralise le principe déjà utilisé par l'arpège de
   // PianoChord (des setTimeout ENCHAÎNÉS, chaque pas programmant lui-même le
   // suivant) pour lire N'IMPORTE QUELLE séquence de la table, avec la durée
   // PROPRE À CHAQUE PAS (steps[i].durationMs) plutôt qu'une durée fixe.
   //
-  // Dépend de selectedAccompanimentIndex (pas de l'objet accompaniment
-  // lui-même) : ACCOMPANIMENTS est un tableau CONSTANT au niveau module,
-  // jamais recréé, donc ACCOMPANIMENTS[i] reste la MÊME référence tant que i
-  // ne change pas — un simple index suffit ici comme dépendance stable
-  // (contrairement à l'arpège de PianoChord, qui doit dériver une clé texte
-  // à partir d'un tableau de notes recalculé, lui, à chaque rendu de
-  // l'appelant).
+  // Dépend de isOpen ET de selectedAccompanimentIndex (pas de l'objet
+  // accompaniment lui-même) : ACCOMPANIMENTS est un tableau CONSTANT au
+  // niveau module, jamais recréé, donc ACCOMPANIMENTS[i] reste la MÊME
+  // référence tant que i ne change pas — un simple index suffit ici comme
+  // dépendance stable (contrairement à l'arpège de PianoChord, qui doit
+  // dériver une clé texte à partir d'un tableau de notes recalculé, lui, à
+  // chaque rendu de l'appelant).
   //
-  // CHANGER D'ACCOMPAGNEMENT (donc changer selectedAccompanimentIndex)
-  // redéclenche cet effet : React exécute D'ABORD la fonction de nettoyage
-  // de l'exécution PRÉCÉDENTE (clearTimeout du timer en attente de l'ANCIEN
-  // accompagnement) AVANT de lancer ce nouveau corps d'effet — l'animation
-  // en cours s'arrête donc TOUJOURS avant que la nouvelle ne démarre, jamais
-  // les deux à la fois.
+  // "if (!isOpen) return" EN TÊTE : ne programme AUCUN timer tant que le
+  // panneau n'est pas ouvert — c'est ce qui empêche le séquenceur de tourner
+  // pendant que le panneau est glissé hors champ (voir le commentaire
+  // NETTOYAGE plus haut).
+  //
+  // CHANGER D'ACCOMPAGNEMENT (donc changer selectedAccompanimentIndex) OU
+  // FERMER LE PANNEAU (isOpen passant à false) redéclenche cet effet : React
+  // exécute D'ABORD la fonction de nettoyage de l'exécution PRÉCÉDENTE
+  // (clearTimeout du timer en attente) AVANT de lancer ce nouveau corps
+  // d'effet — l'animation en cours s'arrête donc TOUJOURS avant qu'une
+  // nouvelle ne démarre (ou avant de s'arrêter pour de bon, si isOpen vient
+  // de passer à false), jamais 2 séquenceurs en même temps.
   useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
     const accompaniment = ACCOMPANIMENTS[selectedAccompanimentIndex];
     let currentStepIndex = 0;
     let timeoutId: ReturnType<typeof setTimeout>;
@@ -395,15 +419,15 @@ function AccompanimentModal({ onClose }: AccompanimentModalProps) {
     scheduleNextStep();
 
     // NETTOYAGE : React appelle cette fonction AUTOMATIQUEMENT avant toute
-    // ré-exécution de cet effet (donc à chaque changement d'accompagnement,
-    // voir ci-dessus) ET au démontage du composant (fermeture de la modale).
-    // clearTimeout annule le SEUL timer en attente à cet instant (timeoutId
-    // est réassigné à chaque pas par scheduleNextStep, donc toujours le bon,
-    // quel que soit le pas en cours à ce moment-là) : aucune fuite de timer
-    // possible, quelle que soit la façon dont la modale se ferme ou dont
-    // l'accompagnement change.
+    // ré-exécution de cet effet (à chaque changement d'accompagnement OU
+    // quand isOpen passe à false, voir ci-dessus) ET au démontage éventuel
+    // du composant. clearTimeout annule le SEUL timer en attente à cet
+    // instant (timeoutId est réassigné à chaque pas par scheduleNextStep,
+    // donc toujours le bon, quel que soit le pas en cours à ce moment-là) :
+    // aucune fuite de timer possible, quelle que soit la façon dont le
+    // panneau se ferme ou dont l'accompagnement change.
     return () => clearTimeout(timeoutId);
-  }, [selectedAccompanimentIndex]);
+  }, [isOpen, selectedAccompanimentIndex]);
 
   const selectedAccompaniment = ACCOMPANIMENTS[selectedAccompanimentIndex];
 
@@ -418,165 +442,159 @@ function AccompanimentModal({ onClose }: AccompanimentModalProps) {
   const currentStep = selectedAccompaniment.steps[stepIndex] ?? selectedAccompaniment.steps[0];
   const activeNotes = resolveStepNotes(currentStep, EXAMPLE_TRIAD);
 
-  // "visible" est toujours vrai ici : ce composant n'est monté QUE quand la
-  // modale doit être affichée (voir son commentaire ci-dessus et son
-  // utilisation dans ResultScreen) — pas besoin de le faire remonter en
-  // prop, la présence même du composant dans l'arbre EST le signal de
-  // visibilité.
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.modalBackdrop} onPress={onClose}>
-        <Pressable style={styles.modalCard} onPress={() => {}}>
-          <Pressable style={styles.modalCloseButton} onPress={onClose}>
-            <Text style={styles.modalCloseButtonLabel}>✕</Text>
-          </Pressable>
+    <>
+      {/* Onglets : un bouton par accompagnement de la table — ajouter un
+          accompagnement à ACCOMPANIMENTS lui donne automatiquement un onglet
+          ici, sans autre changement de code. flexWrap pour rester compact
+          même si la table grandit encore. */}
+      <View style={styles.accompanimentTabsRow}>
+        {ACCOMPANIMENTS.map((accompaniment, index) => {
+          const isSelected = index === selectedAccompanimentIndex;
+          return (
+            <Pressable
+              key={accompaniment.id}
+              style={[styles.accompanimentTab, isSelected && styles.accompanimentTabSelected]}
+              onPress={() => setSelectedAccompanimentIndex(index)}
+            >
+              <Text style={styles.accompanimentTabLabel}>{accompaniment.name}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
 
-          {/* Onglets : un bouton par accompagnement de la table — ajouter un
-              accompagnement à ACCOMPANIMENTS lui donne automatiquement un
-              onglet ici, sans autre changement de code. flexWrap pour rester
-              compact même si la table grandit encore. */}
-          <View style={styles.accompanimentTabsRow}>
-            {ACCOMPANIMENTS.map((accompaniment, index) => {
-              const isSelected = index === selectedAccompanimentIndex;
-              return (
-                <Pressable
-                  key={accompaniment.id}
-                  style={[styles.accompanimentTab, isSelected && styles.accompanimentTabSelected]}
-                  onPress={() => setSelectedAccompanimentIndex(index)}
-                >
-                  <Text style={styles.accompanimentTabLabel}>{accompaniment.name}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+      <Text style={styles.modalTitle}>{selectedAccompaniment.name}</Text>
 
-          <Text style={styles.modalTitle}>{selectedAccompaniment.name}</Text>
+      {/* "key" force PianoChord à remonter ENTIÈREMENT à chaque pas
+          (accompagnement + pas combinés dans la clé) : les pas n'ont pas
+          tous le même nombre de notes (1 pour une note isolée, 3 pour un
+          accord plaqué façon Valse), un remontage complet évite tout état
+          interne de PianoChord hérité d'un pas ou d'un accompagnement à
+          l'autre — même précaution que dans VoicingPanelContent (voir son
+          commentaire).
+          showInversionControls={false} / showArpeggioButton={false} :
+          comme les autres panneaux, celui-ci montre un PRINCIPE sur un
+          accord d'exemple fixe qui s'anime tout seul, pas un accord à
+          manipuler ni un 2e arpège à déclencher manuellement. */}
+      <PianoChord
+        key={`${selectedAccompanimentIndex}-${stepIndex}`}
+        notes={activeNotes}
+        showInversionControls={false}
+        showArpeggioButton={false}
+      />
 
-          {/* "key" force PianoChord à remonter ENTIÈREMENT à chaque pas
-              (accompagnement + pas combinés dans la clé) : les pas n'ont pas
-              tous le même nombre de notes (1 pour une note isolée, 3 pour un
-              accord plaqué façon Valse), un remontage complet évite tout
-              état interne de PianoChord hérité d'un pas ou d'un
-              accompagnement à l'autre — même précaution que dans
-              VoicingModal (voir son commentaire).
-              showInversionControls={false} / showArpeggioButton={false} :
-              comme les autres modales, celle-ci montre un PRINCIPE sur un
-              accord d'exemple fixe qui s'anime tout seul, pas un accord à
-              manipuler ni un 2e arpège à déclencher manuellement. */}
-          <PianoChord
-            key={`${selectedAccompanimentIndex}-${stepIndex}`}
-            notes={activeNotes}
-            showInversionControls={false}
-            showArpeggioButton={false}
-          />
-
-          <Text style={styles.modalExplanation}>{selectedAccompaniment.explanation}</Text>
-        </Pressable>
-      </Pressable>
-    </Modal>
+      <Text style={styles.modalExplanation}>{selectedAccompaniment.explanation}</Text>
+    </>
   );
 }
 
-type VoicingModalProps = {
-  onClose: () => void;
+type VoicingPanelContentProps = {
+  // Voir le commentaire équivalent sur AccompanimentPanelContentProps :
+  // piloté par ResultScreen, ce composant reste TOUJOURS monté (enfant de
+  // SlidePanel). Ce contenu-ci n'a AUCUN minuteur (voir plus bas), donc
+  // "isOpen" ne sert ici qu'à réinitialiser le voicing sélectionné à
+  // l'ouverture — pas à arrêter quoi que ce soit en arrière-plan.
+  isOpen: boolean;
 };
 
-// Modale "Découvrir le voicing" : montre 3 voicings différents (voir
-// VOICING_OPTIONS) du MÊME accord d'exemple fixe (Cmaj7, EXAMPLE_CMAJ7_NOTES),
-// indépendamment de l'accord sélectionné ailleurs sur l'écran — même
-// justification que pour l'arpège : enseigner un principe transposable, pas
-// illustrer l'accord en cours.
+// Contenu de la modale (désormais panneau) "Découvrir le voicing" : montre
+// 3 voicings différents (voir VOICING_OPTIONS) du MÊME accord d'exemple fixe
+// (Cmaj7, EXAMPLE_CMAJ7_NOTES), indépendamment de l'accord sélectionné
+// ailleurs sur l'écran — même justification que pour l'arpège : enseigner un
+// principe transposable, pas illustrer l'accord en cours.
 //
 // Nom du bouton déclencheur : "Découvrir le voicing" (voir ResultScreen),
 // PAS "Voicing" tout court — ExpandedChordPanel a DÉJÀ un bouton "Voicing"
 // qui bascule l'accord RÉELLEMENT affiché entre position théorique et
 // voicing (state voicingMode, conservé tel quel : c'est la "façon de voir
 // le voicing sur l'accord réel" demandée). Réutiliser le même libellé pour
-// ce nouveau bouton, différent par nature (il ouvre une modale explicative
+// ce nouveau bouton, différent par nature (il ouvre un panneau explicatif
 // sur un accord FIXE, il ne change rien à l'accord réel), aurait prêté à
 // confusion : "Découvrir le voicing" reprend donc le même gabarit que
 // "Découvrir un accompagnement", son équivalent pour l'arpège.
 //
-// CHOIX MANUEL, PAS D'ANIMATION : contrairement à la version précédente de
-// cette modale (qui alternait automatiquement entre 2 états via un
-// setInterval), le voicing affiché est maintenant choisi par l'utilisateur
-// via les 3 boutons de VOICING_OPTIONS, et reste FIXE tant qu'il ne change
-// pas de choix. Il n'y a donc plus aucun minuteur dans ce composant — rien
-// ne tourne en arrière-plan, et rien à nettoyer à la fermeture de la modale
-// ou au démontage (contrairement à AccompanimentModal, qui anime toujours
-// automatiquement et a donc encore besoin de ce nettoyage).
-function VoicingModal({ onClose }: VoicingModalProps) {
+// CHOIX MANUEL, PAS D'ANIMATION : le voicing affiché est choisi par
+// l'utilisateur via les 3 boutons de VOICING_OPTIONS, et reste FIXE tant
+// qu'il ne change pas de choix — aucun minuteur dans ce composant, rien à
+// nettoyer à la fermeture du panneau (contrairement à
+// AccompanimentPanelContent, qui anime automatiquement et en a besoin).
+//
+// N'est QUE le contenu : le glissement, la carte, le bouton fermer et le
+// défilement sont fournis par SlidePanel (voir son utilisation dans
+// ResultScreen).
+function VoicingPanelContent({ isOpen }: VoicingPanelContentProps) {
   // Voicing actuellement sélectionné : son "id" (voir VOICING_OPTIONS),
   // "Position fermée" au départ — la disposition de référence, la plus
   // simple, avant d'explorer les 2 autres.
   const [selectedVoicingId, setSelectedVoicingId] = useState('closed');
 
+  // Repart TOUJOURS de "Position fermée" à l'OUVERTURE (isOpen passant à
+  // true) : ce composant étant désormais toujours monté, c'était auparavant
+  // le remontage à chaque ouverture qui remettait ce choix à zéro.
+  useEffect(() => {
+    if (isOpen) {
+      setSelectedVoicingId('closed');
+    }
+  }, [isOpen]);
+
   const selectedVoicing =
     VOICING_OPTIONS.find((voicing) => voicing.id === selectedVoicingId) ?? VOICING_OPTIONS[0];
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.modalBackdrop} onPress={onClose}>
-        <Pressable style={styles.modalCard} onPress={() => {}}>
-          <Pressable style={styles.modalCloseButton} onPress={onClose}>
-            <Text style={styles.modalCloseButtonLabel}>✕</Text>
-          </Pressable>
+    <>
+      <Text style={styles.modalTitle}>Voicing</Text>
 
-          <Text style={styles.modalTitle}>Voicing</Text>
+      {/* Définition générale (voir VOICING_EXPLANATION), affichée QUEL
+          QUE SOIT le voicing choisi ci-dessous. */}
+      <Text style={styles.modalExplanation}>{VOICING_EXPLANATION}</Text>
 
-          {/* Définition générale (voir VOICING_EXPLANATION), affichée QUEL
-              QUE SOIT le voicing choisi ci-dessous. */}
-          <Text style={styles.modalExplanation}>{VOICING_EXPLANATION}</Text>
+      {/* Boutons de voicing : un par entrée de VOICING_OPTIONS, sélection
+          unique, celui sélectionné mis en évidence — même convention
+          visuelle que les onglets d'accompagnement ci-dessus. */}
+      <View style={styles.voicingOptionsRow}>
+        {VOICING_OPTIONS.map((voicing) => {
+          const isSelected = voicing.id === selectedVoicingId;
+          return (
+            <Pressable
+              key={voicing.id}
+              style={[styles.voicingOptionButton, isSelected && styles.voicingOptionButtonSelected]}
+              onPress={() => setSelectedVoicingId(voicing.id)}
+            >
+              <Text style={styles.voicingOptionButtonLabel}>{voicing.label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
 
-          {/* Boutons de voicing : un par entrée de VOICING_OPTIONS, sélection
-              unique, celui sélectionné mis en évidence — même convention
-              visuelle que les onglets d'accompagnement ci-dessus. */}
-          <View style={styles.voicingOptionsRow}>
-            {VOICING_OPTIONS.map((voicing) => {
-              const isSelected = voicing.id === selectedVoicingId;
-              return (
-                <Pressable
-                  key={voicing.id}
-                  style={[styles.voicingOptionButton, isSelected && styles.voicingOptionButtonSelected]}
-                  onPress={() => setSelectedVoicingId(voicing.id)}
-                >
-                  <Text style={styles.voicingOptionButtonLabel}>{voicing.label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+      {/* "key" force PianoChord à remonter entièrement à chaque changement
+          de voicing (donc à repartir avec un renversement à 0) plutôt que de
+          simplement recevoir de nouvelles notes en prop — même précaution
+          que dans ExpandedChordPanel/AccompanimentPanelContent (voir leurs
+          commentaires sur "key") : les 3 voicings n'ont pas la même étendue
+          (Position fermée tient sur 1 octave, Drop 2 et Basse + accord
+          s'étalent bien plus).
+          showInversionControls={false} / showArpeggioButton={false} :
+          comme les autres panneaux, celui-ci montre un PRINCIPE sur un
+          accord d'exemple fixe — pas un accord à manipuler, pas d'arpège à
+          déclencher manuellement ici. La largeur du clavier reste adaptative
+          (PianoChord mesure son conteneur et calcule lui-même le nombre
+          d'octaves nécessaires, voir son commentaire sur
+          computeOctaveCount) : Drop 2/Basse + accord, plus étalés,
+          s'affichent donc automatiquement sur plus d'octaves sans jamais
+          déborder ni recadrage manuel de ma part ici. */}
+      <PianoChord
+        key={selectedVoicing.id}
+        notes={selectedVoicing.notes}
+        showInversionControls={false}
+        showArpeggioButton={false}
+      />
 
-          {/* "key" force PianoChord à remonter entièrement à chaque
-              changement de voicing (donc à repartir avec un renversement à
-              0) plutôt que de simplement recevoir de nouvelles notes en prop
-              — même précaution que dans ExpandedChordPanel/AccompanimentModal
-              (voir leurs commentaires sur "key") : les 3 voicings n'ont pas
-              la même étendue (Position fermée tient sur 1 octave, Drop 2 et
-              Basse + accord s'étalent bien plus).
-              showInversionControls={false} / showArpeggioButton={false} :
-              comme les autres modales, celle-ci montre un PRINCIPE sur un
-              accord d'exemple fixe — pas un accord à manipuler, pas d'arpège
-              à déclencher manuellement ici. La largeur du clavier reste
-              adaptative (PianoChord mesure son conteneur et calcule lui-même
-              le nombre d'octaves nécessaires, voir son commentaire sur
-              computeOctaveCount) : Drop 2/Basse + accord, plus étalés,
-              s'affichent donc automatiquement sur plus d'octaves sans jamais
-              déborder ni recadrage manuel de ma part ici. */}
-          <PianoChord
-            key={selectedVoicing.id}
-            notes={selectedVoicing.notes}
-            showInversionControls={false}
-            showArpeggioButton={false}
-          />
+      {/* TODO: son */}
 
-          {/* TODO: son */}
-
-          {/* Explication SPÉCIFIQUE au voicing sélectionné, sous le clavier —
-              distincte de la définition générale affichée plus haut. */}
-          <Text style={styles.voicingDetailExplanation}>{selectedVoicing.explanation}</Text>
-        </Pressable>
-      </Pressable>
-    </Modal>
+      {/* Explication SPÉCIFIQUE au voicing sélectionné, sous le clavier —
+          distincte de la définition générale affichée plus haut. */}
+      <Text style={styles.voicingDetailExplanation}>{selectedVoicing.explanation}</Text>
+    </>
   );
 }
 
@@ -598,14 +616,23 @@ type TonalityModalProps = {
 // mémorise directement ce choix côté ResultScreen (onSelectMode/onSelectTonic),
 // qui se re-rend aussitôt avec la nouvelle valeur. Le panneau reste ouvert
 // après un tap (l'utilisateur peut choisir mode ET tonique avant de fermer),
-// et ne se ferme que via son bouton ✕ ou un tap hors de la carte — même
-// mécanisme que AccompanimentModal ci-dessus (voir son commentaire pour le
-// détail de ce choix de fermeture).
+// et ne se ferme que via son bouton ✕ ou un tap hors de la carte — le fond
+// (modalBackdrop) est lui-même un Pressable plein écran avec
+// onPress={onClose}, et la carte au centre un SECOND Pressable avec un
+// onPress vide, qui "consomme" donc le tap avant qu'il n'atteigne le fond
+// en dessous (les Pressable de React Native ne laissent pas un tap
+// traverser vers un Pressable parent une fois qu'un Pressable enfant l'a
+// géré) : taper DANS la carte ne ferme donc pas la modale, seulement en
+// dehors. Cette modale-ci reste une VRAIE Modal react-native (voir la
+// consigne : seuls les 3 boutons accompagnement/voicing/enrichissement
+// deviennent des panneaux glissants, pas celui-ci).
 //
-// Contrairement à AccompanimentModal, ce panneau ne monte aucun <PianoChord>
-// (pas de minuteur d'arpège à nettoyer) : sa présence/absence dans l'arbre
-// (pilotée par isTonalityModalOpen côté ResultScreen) peut donc rester une
-// simple question d'affichage, sans contrainte de démontage particulière.
+// Contrairement à AccompanimentPanelContent (qui doit explicitement arrêter
+// son séquenceur d'arpège à la fermeture, voir son commentaire), ce panneau
+// ne monte aucun <PianoChord> (pas de minuteur à nettoyer) : sa
+// présence/absence dans l'arbre (pilotée par isTonalityModalOpen côté
+// ResultScreen) peut donc rester une simple question d'affichage, sans
+// contrainte de démontage particulière.
 function TonalityModal({ tonic, mode, onSelectTonic, onSelectMode, onClose }: TonalityModalProps) {
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
@@ -657,20 +684,20 @@ function TonalityModal({ tonic, mode, onSelectTonic, onSelectMode, onClose }: To
 }
 
 // Définition GÉNÉRALE des dominantes secondaires, affichée en haut
-// d'EnrichmentModal quelle que soit l'option choisie en dessous (même
-// principe que VOICING_EXPLANATION pour VoicingModal).
+// d'EnrichmentPanelContent quelle que soit l'option choisie en dessous (même
+// principe que VOICING_EXPLANATION pour VoicingPanelContent).
 const SECONDARY_DOMINANT_EXPLANATION =
   "Une dominante secondaire est un accord emprunté qui « vise » un degré de la progression en créant une tension vers lui, avant de s'y résoudre — comme si ce degré devenait, le temps d'un accord, une tonique temporaire.";
 
-// Une option de dominante secondaire proposée dans EnrichmentModal. STRUCTURE
-// EXTENSIBLE (voir la consigne) : le composant EnrichmentModal se contente de
+// Une option de dominante secondaire proposée dans EnrichmentPanelContent.
+// STRUCTURE EXTENSIBLE (voir la consigne) : ce composant se contente de
 // .map() un tableau de ces options, donc ajouter un futur V/IV, V/vi... plus
-// tard ne demande aucun changement à EnrichmentModal lui-même — seulement une
-// nouvelle entrée ici, ET (côté ResultScreen) sa propre logique d'état et
-// d'insertion, analogue à isVOfVAdded/withSecondaryDominantOfV : chaque
-// dominante secondaire vise un degré DIFFÉRENT (donc une règle d'insertion
-// différente), rien de plus générique n'est donc tenté ici pour l'instant —
-// seul le V/V, seul cas demandé, a sa logique réellement câblée.
+// tard ne lui demande aucun changement — seulement une nouvelle entrée ici,
+// ET (côté ResultScreen) sa propre logique d'état et d'insertion, analogue à
+// isVOfVAdded/withSecondaryDominantOfV : chaque dominante secondaire vise un
+// degré DIFFÉRENT (donc une règle d'insertion différente), rien de plus
+// générique n'est donc tenté ici pour l'instant — seul le V/V, seul cas
+// demandé, a sa logique réellement câblée.
 type SecondaryDominantOption = {
   id: string;
   label: string;
@@ -682,38 +709,130 @@ type SecondaryDominantOption = {
   onToggle: () => void;
 };
 
-type EnrichmentModalProps = {
+// Explication générale des cadences (page 2 d'EnrichmentPanelContent),
+// placeholder à reformuler plus tard — même rôle que
+// SECONDARY_DOMINANT_EXPLANATION pour la page 1.
+const CADENCE_EXPLANATION =
+  "Une cadence est une formule harmonique qui conclut (ou suspend) une phrase musicale, en général en fin de progression. Certaines referment complètement (parfaite), d'autres restent ouvertes (demi-cadence) ou surprennent l'oreille (rompue).";
+
+// Pages d'EnrichmentPanelContent, dans leur ordre d'affichage (voir pageIndex
+// plus bas). STRUCTURE EXTENSIBLE : ajouter une 3e page plus tard ne demande
+// qu'une entrée ici (son titre) + son propre bloc de rendu conditionnel dans
+// EnrichmentPanelContent — la navigation par flèches et l'indicateur "X/N"
+// s'appuient sur ENRICHMENT_PAGE_TITLES.length, jamais sur "2" en dur.
+const ENRICHMENT_PAGE_TITLES = ['Dominantes secondaires', 'Cadences'];
+
+type EnrichmentPanelContentProps = {
+  // Voir le commentaire équivalent sur AccompanimentPanelContentProps :
+  // piloté par ResultScreen, ce composant reste TOUJOURS monté (enfant de
+  // SlidePanel) — "isOpen" sert ici à réinitialiser page/cadence
+  // sélectionnées à l'ouverture (ce contenu n'a pas de minuteur à arrêter).
+  isOpen: boolean;
   options: SecondaryDominantOption[];
-  onClose: () => void;
+  // Cadence actuellement ajoutée à la progression (id de CADENCES), ou null
+  // si aucune — vit côté ResultScreen (voir addedCadenceId), pas ici.
+  addedCadenceId: string | null;
+  // La détection "la progression se termine déjà par une cadence" + l'Alert
+  // de confirmation vivent côté ResultScreen (voir handleAddCadence, qui a
+  // besoin de filteredProgressions/isVOfVAdded, inconnus ici) : ce composant
+  // se contente de transmettre QUELLE cadence l'utilisateur a choisie.
+  onAddCadence: (cadenceId: string) => void;
+  onRemoveCadence: () => void;
 };
 
-// Modale "Enrichir la progression" : explique les dominantes secondaires en
-// général, puis propose de les ajouter/retirer une par une (voir "options",
-// une seule entrée câblée pour l'instant : le V/V).
+// Contenu du panneau "Enrichir la progression", NAVIGABLE EN PAGES (flèches
+// < >, indicateur "X/N" — voir pageIndex et ENRICHMENT_PAGE_TITLES) :
+// - Page 1 : dominantes secondaires (V/V), inchangée par rapport à avant.
+// - Page 2 : cadences (voir CADENCES dans ../dataset/cadences.ts).
 //
-// RÉVERSIBILITÉ : chaque option est un simple INTERRUPTEUR (son bouton
-// affiche "Ajouter un X" ou "Retirer le X" selon option.isEnabled, comme le
-// bouton Voicing de ExpandedChordPanel) — activer puis désactiver la même
-// option revient exactement à la progression d'origine, l'état vivant chez
-// ResultScreen (isVOfVAdded), pas ici (voir son commentaire pour le détail
-// de ce qui est mémorisé et pourquoi).
-function EnrichmentModal({ options, onClose }: EnrichmentModalProps) {
-  return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.modalBackdrop} onPress={onClose}>
-        <Pressable style={styles.modalCard} onPress={() => {}}>
-          <Pressable style={styles.modalCloseButton} onPress={onClose}>
-            <Text style={styles.modalCloseButtonLabel}>✕</Text>
-          </Pressable>
+// RÉVERSIBILITÉ (page 1 ET page 2) : chaque enrichissement est un
+// INTERRUPTEUR dont l'état vit côté ResultScreen (isVOfVAdded/addedCadenceId)
+// — jamais une mutation permanente des degrés d'origine — donc annuler
+// revient TOUJOURS exactement à la progression de départ (voir
+// withSecondaryDominantOfV / withCadence, qui repartent toujours des degrés
+// bruts plutôt que d'un état accumulé). Cette logique n'a PAS changé.
+//
+// N'est QUE le contenu : le glissement, la carte, le bouton fermer et le
+// défilement sont fournis par SlidePanel (voir son utilisation dans
+// ResultScreen) — ce composant ne gère plus lui-même ni translateY, ni sa
+// propre largeur/hauteur : "isOpen" ne sert plus ici qu'à réinitialiser
+// page/cadence sélectionnées à l'ouverture.
+function EnrichmentPanelContent({
+  isOpen,
+  options,
+  addedCadenceId,
+  onAddCadence,
+  onRemoveCadence,
+}: EnrichmentPanelContentProps) {
+  // Page actuellement affichée (0 = dominantes secondaires, 1 = cadences).
+  const [pageIndex, setPageIndex] = useState(0);
 
-          <Text style={styles.modalTitle}>Dominantes secondaires</Text>
+  // Cadence actuellement mise en évidence dans la liste de la page 2, AVANT
+  // tout ajout — le choix ne devient réel qu'au tap sur "Ajouter cette
+  // cadence" (voir handlePressAdd). Locale à ce composant, comme
+  // selectedVoicingId dans VoicingPanelContent.
+  const [selectedCadenceId, setSelectedCadenceId] = useState(CADENCES[0].id);
+
+  // Réinitialise page/cadence sélectionnées à l'OUVERTURE (isOpen passant à
+  // true) : ce composant étant toujours monté (enfant de SlidePanel, voir
+  // son commentaire), c'était auparavant le remontage à chaque ouverture qui
+  // remettait ces 2 states à zéro — il faut donc le faire explicitement ici
+  // pour garder exactement le même comportement qu'avant (toujours repartir
+  // de la page 1 et du 1er choix de cadence).
+  useEffect(() => {
+    if (isOpen) {
+      setPageIndex(0);
+      setSelectedCadenceId(CADENCES[0].id);
+    }
+  }, [isOpen]);
+
+  // Boucle aux extrémités (dernière page → 1re et inversement) : même
+  // convention que la navigation entre renversements de PianoChord
+  // (goToPreviousInversion/goToNextInversion), appliquée ici aux PAGES du
+  // panneau plutôt qu'aux renversements d'un accord.
+  const goToPreviousPage = () => {
+    setPageIndex(
+      (current) => (current - 1 + ENRICHMENT_PAGE_TITLES.length) % ENRICHMENT_PAGE_TITLES.length,
+    );
+  };
+
+  const goToNextPage = () => {
+    setPageIndex((current) => (current + 1) % ENRICHMENT_PAGE_TITLES.length);
+  };
+
+  const handlePressAdd = () => {
+    onAddCadence(selectedCadenceId);
+  };
+
+  return (
+    <>
+      {/* Navigation entre pages : flèches < >, indicateur "X/N" au milieu. */}
+      <View style={styles.enrichmentPageNavRow}>
+        <Pressable style={styles.enrichmentPageArrowButton} onPress={goToPreviousPage}>
+          <Text style={styles.enrichmentPageArrowLabel}>{'<'}</Text>
+        </Pressable>
+
+        <Text style={styles.enrichmentPageIndicator}>
+          {pageIndex + 1}/{ENRICHMENT_PAGE_TITLES.length}
+        </Text>
+
+        <Pressable style={styles.enrichmentPageArrowButton} onPress={goToNextPage}>
+          <Text style={styles.enrichmentPageArrowLabel}>{'>'}</Text>
+        </Pressable>
+      </View>
+
+      <Text style={styles.modalTitle}>{ENRICHMENT_PAGE_TITLES[pageIndex]}</Text>
+
+      {pageIndex === 0 && (
+        <>
           <Text style={styles.modalExplanation}>{SECONDARY_DOMINANT_EXPLANATION}</Text>
 
           {options.map((option) => {
             // Désactivé UNIQUEMENT si l'option n'est pas déjà active ET
-            // qu'elle ne peut pas l'être (ex: pas de V dans la progression) :
-            // une option déjà activée reste toujours retirable, même si la
-            // condition qui avait permis de l'ajouter ne tenait plus.
+            // qu'elle ne peut pas l'être (ex: pas de V dans la
+            // progression) : une option déjà activée reste toujours
+            // retirable, même si la condition qui avait permis de
+            // l'ajouter ne tenait plus.
             const isDisabled = !option.isEnabled && !option.canEnable;
 
             return (
@@ -746,15 +865,67 @@ function EnrichmentModal({ options, onClose }: EnrichmentModalProps) {
           <Pressable style={styles.learnMoreButton} onPress={() => {}}>
             <Text style={styles.learnMoreButtonLabel}>En savoir plus</Text>
           </Pressable>
-        </Pressable>
-      </Pressable>
-    </Modal>
+        </>
+      )}
+
+      {pageIndex === 1 && (
+        <>
+          <Text style={styles.modalExplanation}>{CADENCE_EXPLANATION}</Text>
+
+          {/* Liste compacte des 4 cadences (voir CADENCES), sélection
+              unique — même convention visuelle que les boutons de
+              VoicingPanelContent/TonalityModal, préférée à un vrai menu
+              déroulant natif (React Native n'en fournit pas sans dépendance
+              supplémentaire, pas nécessaire ici pour seulement 4 choix). */}
+          <View style={styles.cadenceOptionsRow}>
+            {CADENCES.map((cadence) => {
+              const isSelected = cadence.id === selectedCadenceId;
+              return (
+                <Pressable
+                  key={cadence.id}
+                  style={[
+                    styles.cadenceOptionButton,
+                    isSelected && styles.cadenceOptionButtonSelected,
+                  ]}
+                  onPress={() => setSelectedCadenceId(cadence.id)}
+                >
+                  <Text style={styles.cadenceOptionButtonLabel}>{cadence.name}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          {/* 2 boutons séparés (contrairement à la page 1) : "Ajouter" agit
+              toujours sur la cadence sélectionnée ci-dessus (elle peut
+              remplacer une cadence déjà ajoutée, ou avertir si la
+              progression se termine déjà naturellement par une cadence —
+              voir handleAddCadence côté ResultScreen) ; "Retirer" n'apparaît
+              que s'il y a réellement quelque chose à retirer. */}
+          <Pressable style={styles.enrichmentToggleButton} onPress={handlePressAdd}>
+            <Text style={styles.enrichmentToggleButtonLabel}>Ajouter cette cadence</Text>
+          </Pressable>
+
+          {addedCadenceId !== null && (
+            <Pressable
+              style={[styles.enrichmentToggleButton, styles.enrichmentToggleButtonSelected]}
+              onPress={onRemoveCadence}
+            >
+              <Text style={styles.enrichmentToggleButtonLabel}>Retirer la cadence ajoutée</Text>
+            </Pressable>
+          )}
+        </>
+      )}
+    </>
   );
 }
 
 export default function ResultScreen() {
   // Émotion + style choisis sur les deux écrans précédents, reçus via les params de route.
   const { emotion, style } = useRoute<ImproResultRoute>().params;
+  // Pour le lien "Modifier" de la carte du haut (voir la carte plus bas) :
+  // ImproResult n'est atteint que depuis ImproChoices ("Voir les
+  // progressions"), donc goBack() y ramène toujours directement.
+  const navigation = useNavigation<ImproResultNavigation>();
 
   const emotionLabel = MOODS.find((mood) => mood.value === emotion)?.label ?? emotion;
 
@@ -766,18 +937,18 @@ export default function ResultScreen() {
     (progression) => progression.emotion === emotion
   );
 
-  // STATE DE LA MODALE "DÉCOUVRIR UN ACCOMPAGNEMENT" : ouverte/fermée,
-  // indépendante de tout accord sélectionné (voir AccompanimentModal,
-  // rendue uniquement quand ce booléen est vrai — c'est ce démontage complet
-  // à la fermeture qui garantit le nettoyage du minuteur d'arpège, voir son
-  // commentaire).
-  const [isAccompanimentModalOpen, setIsAccompanimentModalOpen] = useState(false);
+  // STATE DU PANNEAU "DÉCOUVRIR UN ACCOMPAGNEMENT" : ouvert/fermé,
+  // indépendant de tout accord sélectionné. Passé en prop à la fois à
+  // SlidePanel (qui anime son ouverture/fermeture) et à
+  // AccompanimentPanelContent (qui l'utilise pour savoir quand arrêter son
+  // séquenceur d'arpège — voir son commentaire ; ce contenu reste désormais
+  // TOUJOURS monté, contrairement à l'ancienne Modal qui démontait
+  // entièrement à la fermeture).
+  const [isAccompanimentPanelOpen, setIsAccompanimentPanelOpen] = useState(false);
 
-  // STATE DE LA MODALE "DÉCOUVRIR LE VOICING" : même principe que
-  // isAccompanimentModalOpen ci-dessus (voir son commentaire) — montée
-  // uniquement quand ce booléen est vrai, ce qui garantit le nettoyage du
-  // minuteur d'alternance de VoicingModal à la fermeture.
-  const [isVoicingModalOpen, setIsVoicingModalOpen] = useState(false);
+  // STATE DU PANNEAU "DÉCOUVRIR LE VOICING" : même principe que
+  // isAccompanimentPanelOpen ci-dessus.
+  const [isVoicingPanelOpen, setIsVoicingPanelOpen] = useState(false);
 
   // STATE DE LA TONALITÉ DE RÉFÉRENCE : tonique + mode utilisés pour
   // convertir TOUS les degrés affichés (toutes progressions confondues) en
@@ -853,30 +1024,33 @@ export default function ResultScreen() {
   // renvoie alors "degrees" tel quel, sans aucune copie/mutation permanente
   // des données de PROGRESSIONS).
   const [isVOfVAdded, setIsVOfVAdded] = useState(false);
-  const [isEnrichmentModalOpen, setIsEnrichmentModalOpen] = useState(false);
+  const [isEnrichmentPanelOpen, setIsEnrichmentPanelOpen] = useState(false);
 
   // Condition d'activation de l'option "Ajouter un V/V" (voir
-  // EnrichmentModal) : au moins UNE des progressions actuellement affichées
+  // EnrichmentPanelContent) : au moins UNE des progressions actuellement affichées
   // doit contenir un "V", sinon l'activer n'aurait absolument aucun effet
   // visible nulle part sur cet écran.
   const anyProgressionHasV = filteredProgressions.some((progression) =>
     progression.degrees.includes('V'),
   );
 
-  const toggleVOfV = () => {
-    setIsVOfVAdded((current) => !current);
-    // Insérer/retirer le V/V DÉCALE les index de tous les accords situés
-    // après le point d'insertion dans chaque progression concernée (voir
-    // ChordPosition.chordIndex) : un niveau d'enrichissement ou un accord
-    // "déplié" mémorisé PAR INDEX pourrait donc se retrouver associé au
-    // MAUVAIS accord après le décalage (ex: le niveau "7e" du Ier degré
-    // resterait sur l'index où il était, mais cet index pointe désormais
-    // vers le V/V ou un autre accord). Réinitialiser sélection et niveaux
-    // ici est le choix le plus simple et le plus sûr pour l'éviter — la
-    // progression change de forme, il est normal qu'on reparte d'un état
-    // propre plutôt que de tenter de "réaligner" les anciens index.
+  // Partagé par le V/V ET les cadences (voir toggleVOfV/handleAddCadence/
+  // handleRemoveCadence plus bas) : insérer ou retirer un enrichissement
+  // DÉCALE les index des accords situés après le point d'insertion (voir
+  // ChordPosition.chordIndex) — un niveau d'enrichissement ou un accord
+  // "déplié" mémorisé PAR INDEX pourrait donc se retrouver associé au
+  // MAUVAIS accord après le décalage. Réinitialiser sélection et niveaux à
+  // chaque changement de forme de la progression est le choix le plus
+  // simple et le plus sûr pour l'éviter, plutôt que de tenter de
+  // "réaligner" les anciens index.
+  const resetProgressionUiState = () => {
     setSelected(null);
     setEnrichmentLevels(new Map());
+  };
+
+  const toggleVOfV = () => {
+    setIsVOfVAdded((current) => !current);
+    resetProgressionUiState();
   };
 
   const secondaryDominantOptions: SecondaryDominantOption[] = [
@@ -892,45 +1066,102 @@ export default function ResultScreen() {
     },
   ];
 
+  // STATE DE LA CADENCE AJOUTÉE : même principe que isVOfVAdded ci-dessus,
+  // mais mémorise QUELLE cadence (son id dans CADENCES) plutôt qu'un simple
+  // booléen, puisqu'il y a 4 choix possibles au lieu d'un seul. null = pas
+  // de cadence ajoutée. Un SEUL id global, appliqué à TOUTES les
+  // progressions affichées (voir withCadence dans le rendu plus bas) : même
+  // choix que pour le V/V, pour la même raison (garder un modèle mental
+  // simple plutôt qu'un état par progression).
+  const [addedCadenceId, setAddedCadenceId] = useState<string | null>(null);
+
+  // AJOUT D'UNE CADENCE : avant d'appliquer le choix, on vérifie si une
+  // progression affichée se termine DÉJÀ par une cadence (findExistingCadence,
+  // appliquée aux degrés APRÈS V/V — les 2 enrichissements se composent dans
+  // cet ordre, voir displayedDegrees plus bas). Cette vérification porte sur
+  // les degrés D'ORIGINE (+ V/V), jamais sur un ajout précédent de cette
+  // même fonctionnalité : withCadence repart toujours de zéro à chaque
+  // rendu (voir son commentaire dans cadences.ts), donc passer d'une cadence
+  // à une autre déjà ajoutée par CE bouton ne redéclenche PAS l'avertissement
+  // — seule une fin de progression NATURELLEMENT proche d'une cadence
+  // (dans les données d'origine) le déclenche.
+  //
+  // Si une cadence existante est détectée : Alert à 2 choix, "Annuler" (rien
+  // ne change) ou "Remplacer la fin" (applique le nouveau choix — c'est
+  // withCadence, appelé au rendu, qui se charge réellement de retirer
+  // l'ancienne fin avant d'ajouter la nouvelle). Sinon, le choix s'applique
+  // directement, sans interruption.
+  const handleAddCadence = (cadenceId: string) => {
+    const hasExistingCadence = filteredProgressions.some((progression) => {
+      const baseDegrees = withSecondaryDominantOfV(progression.degrees, isVOfVAdded);
+      return findExistingCadence(baseDegrees) !== null;
+    });
+
+    if (hasExistingCadence) {
+      Alert.alert(
+        'Cadence déjà présente',
+        'Cette progression se termine déjà par une cadence. Veux-tu remplacer sa fin par la cadence choisie ?',
+        [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Remplacer la fin',
+            onPress: () => {
+              setAddedCadenceId(cadenceId);
+              resetProgressionUiState();
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    setAddedCadenceId(cadenceId);
+    resetProgressionUiState();
+  };
+
+  const handleRemoveCadence = () => {
+    setAddedCadenceId(null);
+    resetProgressionUiState();
+  };
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    // Enveloppe supplémentaire (absente avant) : les 3 SlidePanel doivent se
+    // positionner en "absolute" par rapport à TOUT l'écran (pour glisser
+    // depuis le haut par-dessus le contenu, voir plus bas), pas seulement
+    // par rapport au contenu défilant du ScrollView — ils doivent donc être
+    // des FRÈRES du ScrollView, pas des enfants, tous dans ce conteneur
+    // commun.
+    <View style={styles.screen}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={theme.text.title}>Résultat</Text>
-      {/* "style" est désormais optionnel (voir ExercisesStackParamList) :
-          ImproChoicesScreen laisse voir les progressions sans en choisir un.
-          Sans ce garde, "undefined" s'afficherait littéralement à l'écran. */}
-      <Text style={theme.text.subtitle}>{style ? `${emotionLabel} · ${style}` : emotionLabel}</Text>
 
-      {/* Rangée compacte des 4 boutons indépendants de l'accord sélectionné :
-          "Tonalité" (affiche le choix courant, ouvre TonalityModal),
-          "Découvrir un accompagnement" (ouvre AccompanimentModal),
-          "Découvrir le voicing" (ouvre VoicingModal) et "Enrichir la
-          progression" (ouvre EnrichmentModal) — tous quatre toujours
-          accessibles, pas seulement quand un accord est déplié. flexWrap
-          pour rester lisible si l'écran est étroit. */}
-      <View style={styles.topButtonsRow}>
-        <Pressable style={styles.tonalityButton} onPress={() => setIsTonalityModalOpen(true)}>
-          <Text style={styles.tonalityButtonLabel}>{tonalityLabel}</Text>
+      {/* CARTE DU HAUT : regroupe tout ce qui décrit le contexte de la
+          progression (style, tonalité + son changement, retour aux choix
+          émotion/style) — remplace les anciens boutons "Romantique"/
+          "Do majeur" qui flottaient indépendamment en haut de l'écran. */}
+      <View style={styles.summaryCard}>
+        {/* "style" est désormais optionnel (voir ExercisesStackParamList) :
+            ImproChoicesScreen laisse voir les progressions sans en choisir
+            un. Sans ce garde, "undefined" s'afficherait littéralement ici —
+            même calcul qu'avant, seulement réétiqueté "Style : ". */}
+        <Text style={styles.summaryLabel}>
+          Style : {style ? `${emotionLabel} · ${style}` : emotionLabel}
+        </Text>
+
+        {/* Toute la rangée reste le bouton qui ouvre TonalityModal (même
+            comportement qu'avant, simplement réintégré dans la carte au
+            lieu d'être un bouton flottant à part) ; "Changer" à droite
+            rend l'affordance de tap explicite. */}
+        <Pressable style={styles.summaryTonalityRow} onPress={() => setIsTonalityModalOpen(true)}>
+          <Text style={styles.summaryLabel}>Tonalité : {tonalityLabel}</Text>
+          <Text style={styles.summaryTonalityChangeLabel}>Changer</Text>
         </Pressable>
 
-        <Pressable
-          style={styles.accompanimentButton}
-          onPress={() => setIsAccompanimentModalOpen(true)}
-        >
-          <Text style={styles.accompanimentButtonLabel}>Découvrir un accompagnement</Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.voicingDiscoveryButton}
-          onPress={() => setIsVoicingModalOpen(true)}
-        >
-          <Text style={styles.voicingDiscoveryButtonLabel}>Découvrir le voicing</Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.enrichmentButton}
-          onPress={() => setIsEnrichmentModalOpen(true)}
-        >
-          <Text style={styles.enrichmentButtonLabel}>Enrichir la progression</Text>
+        {/* Lien "modifier" : ImproResult n'est atteint que depuis
+            ImproChoices, donc goBack() y ramène toujours directement (voir
+            le commentaire sur "navigation" plus haut). */}
+        <Pressable onPress={() => navigation.goBack()}>
+          <Text style={styles.summaryEditLink}>Modifier l'émotion et le style</Text>
         </Pressable>
       </View>
 
@@ -944,46 +1175,52 @@ export default function ResultScreen() {
         />
       )}
 
-      {isAccompanimentModalOpen && (
-        <AccompanimentModal onClose={() => setIsAccompanimentModalOpen(false)} />
-      )}
-
-      {isVoicingModalOpen && (
-        <VoicingModal onClose={() => setIsVoicingModalOpen(false)} />
-      )}
-
-      {isEnrichmentModalOpen && (
-        <EnrichmentModal
-          options={secondaryDominantOptions}
-          onClose={() => setIsEnrichmentModalOpen(false)}
-        />
-      )}
-
       {filteredProgressions.length > 0 ? (
         filteredProgressions.map((progression, progressionIndex) => {
           // Degrés RÉELLEMENT affichés pour cette progression : ceux
-          // d'origine, ou avec le V/V inséré juste avant son premier V si
+          // d'origine, avec le V/V inséré juste avant son premier V si
           // isVOfVAdded est actif ET que cette progression contient un V
-          // (voir withSecondaryDominantOfV) — une progression sans V n'est
-          // pas affectée, même si isVOfVAdded est actif pour l'écran entier.
-          const displayedDegrees = withSecondaryDominantOfV(progression.degrees, isVOfVAdded);
+          // (voir withSecondaryDominantOfV — une progression sans V n'est pas
+          // affectée), PUIS la cadence ajoutée (le cas échéant) en fin de
+          // liste (voir withCadence) — les 2 enrichissements se COMPOSENT
+          // dans cet ordre : V/V d'abord (il s'insère au milieu), cadence
+          // ensuite (elle s'ajoute toujours à la toute fin).
+          const displayedDegrees = withCadence(
+            withSecondaryDominantOfV(progression.degrees, isVOfVAdded),
+            addedCadenceId,
+          );
 
           return (
             <View key={progressionIndex} style={styles.progressionBlock}>
-              {/* Par défaut : seulement les degrés, en chips cliquables — pas
-                  de piano visible tant qu'aucun n'est sélectionné. */}
-              <View style={styles.degreeChipsRow}>
+              {/* ÉLÉMENT CENTRAL DE LA PAGE : les degrés en carrés homogènes
+                  (largeur = hauteur, voir DEGREE_SQUARE_SIZE), sans espace
+                  entre eux (marginLeft négatif sur degreeSquare, qui fait
+                  chevaucher/partager la bordure du voisin) pour l'effet
+                  "suite reliée visuellement" — seuls le 1er et le dernier
+                  carré arrondissent leur coin extérieur (degreeSquareFirst/
+                  degreeSquareLast), comme un "segmented control". Cliquer
+                  garde son rôle actuel : déplier le piano de l'accord. */}
+              <View style={styles.degreeSequenceRow}>
                 {displayedDegrees.map((degree, chordIndex) => {
                   const position: ChordPosition = { progressionIndex, chordIndex };
                   const isSelected = samePosition(selected, position);
+                  const isFirst = chordIndex === 0;
+                  const isLast = chordIndex === displayedDegrees.length - 1;
 
                   return (
                     <Pressable
                       key={chordIndex}
-                      style={[styles.degreeChip, isSelected && styles.degreeChipSelected]}
+                      style={[
+                        styles.degreeSquare,
+                        isFirst && styles.degreeSquareFirst,
+                        isLast && styles.degreeSquareLast,
+                        isSelected && styles.degreeSquareSelected,
+                      ]}
                       onPress={() => toggleSelection(position)}
                     >
-                      <Text style={styles.degreeChipLabel}>{degree}</Text>
+                      <Text style={styles.degreeSquareLabel} numberOfLines={1}>
+                        {degree}
+                      </Text>
                     </Pressable>
                   );
                 })}
@@ -1021,11 +1258,74 @@ export default function ResultScreen() {
       ) : (
         <Text style={theme.text.subtitle}>Aucune progression trouvée</Text>
       )}
-    </ScrollView>
+
+      {/* EN BAS : les 3 actions globales (indépendantes de l'accord/de la
+          progression sélectionnée, voir leur commentaire d'origine plus haut
+          dans ce fichier), désormais en pleine largeur, empilées, de largeur
+          égale — un seul style partagé (actionButton) plutôt que 3 styles
+          quasi identiques, puisqu'elles doivent justement se ressembler. */}
+      <View style={styles.actionButtonsColumn}>
+        <Pressable style={styles.actionButton} onPress={() => setIsAccompanimentPanelOpen(true)}>
+          <Text style={styles.actionButtonIcon}>🎵</Text>
+          <Text style={styles.actionButtonLabel}>Découvrir un accompagnement</Text>
+        </Pressable>
+
+        <Pressable style={styles.actionButton} onPress={() => setIsVoicingPanelOpen(true)}>
+          <Text style={styles.actionButtonIcon}>🎹</Text>
+          <Text style={styles.actionButtonLabel}>Découvrir le voicing</Text>
+        </Pressable>
+
+        <Pressable style={styles.actionButton} onPress={() => setIsEnrichmentPanelOpen(true)}>
+          <Text style={styles.actionButtonIcon}>✨</Text>
+          <Text style={styles.actionButtonLabel}>Enrichir la progression</Text>
+        </Pressable>
+      </View>
+      </ScrollView>
+
+      {/* Les 3 panneaux (voir SlidePanel.tsx) : TOUJOURS rendus (pas de
+          `{isXPanelOpen && ...}`) — voir le commentaire détaillé sur
+          SlidePanel pour le pourquoi (leur fermeture doit pouvoir s'animer).
+          En dehors du ScrollView (frères, pas enfants) pour se positionner
+          en "absolute" par rapport à l'écran entier plutôt que de défiler
+          avec le contenu. Chacun reçoit son propre "isOpen" ET le retransmet
+          à son contenu (voir AccompanimentPanelContent/VoicingPanelContent/
+          EnrichmentPanelContent) : SlidePanel s'en sert pour l'animation, le
+          contenu pour savoir quand se réinitialiser/arrêter ses éventuels
+          minuteurs. */}
+      <SlidePanel
+        isOpen={isAccompanimentPanelOpen}
+        onClose={() => setIsAccompanimentPanelOpen(false)}
+      >
+        <AccompanimentPanelContent isOpen={isAccompanimentPanelOpen} />
+      </SlidePanel>
+
+      <SlidePanel isOpen={isVoicingPanelOpen} onClose={() => setIsVoicingPanelOpen(false)}>
+        <VoicingPanelContent isOpen={isVoicingPanelOpen} />
+      </SlidePanel>
+
+      <SlidePanel
+        isOpen={isEnrichmentPanelOpen}
+        onClose={() => setIsEnrichmentPanelOpen(false)}
+      >
+        <EnrichmentPanelContent
+          isOpen={isEnrichmentPanelOpen}
+          options={secondaryDominantOptions}
+          addedCadenceId={addedCadenceId}
+          onAddCadence={handleAddCadence}
+          onRemoveCadence={handleRemoveCadence}
+        />
+      </SlidePanel>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Conteneur racine : nécessaire pour que les 3 SlidePanel (position
+  // 'absolute') se positionnent par rapport à TOUT l'écran, en frères du
+  // ScrollView plutôt qu'en enfants (voir le commentaire dans le rendu).
+  screen: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     backgroundColor: theme.colors.background,
@@ -1037,29 +1337,51 @@ const styles = StyleSheet.create({
   progressionBlock: {
     gap: theme.spacing.md,
   },
-  degreeChipsRow: {
+  // Rangée des carrés de degré (voir DEGREE_SQUARE_SIZE) : centrée et
+  // capable de passer à la ligne (flexWrap) pour ne JAMAIS déborder sur un
+  // écran étroit, même avec une progression longue (V/V + cadence ajoutés).
+  // alignSelf: 'center' recentre aussi le groupe quand il est plus étroit
+  // que l'écran, plutôt que de le laisser collé à gauche.
+  degreeSequenceRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: theme.spacing.md,
+    justifyContent: 'center',
+    alignSelf: 'center',
   },
-  degreeChip: {
+  degreeSquare: {
+    width: DEGREE_SQUARE_SIZE,
+    height: DEGREE_SQUARE_SIZE,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
-    paddingVertical: theme.spacing.md,
-    paddingHorizontal: theme.spacing.lg,
     borderWidth: 1,
     borderColor: theme.colors.primary,
+    // Chevauche le bord gauche du voisin (au lieu d'un "gap") : les carrés
+    // se touchent et partagent une seule ligne de bordure plutôt que d'en
+    // afficher 2 côte à côte — c'est ce qui donne l'effet "suite reliée
+    // visuellement" demandé, plutôt que des bulles séparées.
+    marginLeft: -1,
   },
-  // Mise en évidence du degré sélectionné : fond plein en couleur d'accent
-  // du thème (primary), la même convention que moodButtonSelected/
-  // scaleButtonSelected ailleurs dans l'app pour un état "sélectionné".
-  degreeChipSelected: {
+  // Arrondit SEULEMENT le coin extérieur du 1er et du dernier carré d'une
+  // rangée (comme un "segmented control" natif) : le reste de la suite
+  // garde des angles droits, cohérent avec la consigne "boutons carrés" —
+  // seules les 2 extrémités du groupe entier sont adoucies.
+  degreeSquareFirst: {
+    marginLeft: 0,
+    borderTopLeftRadius: theme.radius.sm,
+    borderBottomLeftRadius: theme.radius.sm,
+  },
+  degreeSquareLast: {
+    borderTopRightRadius: theme.radius.sm,
+    borderBottomRightRadius: theme.radius.sm,
+  },
+  // Même convention que partout ailleurs dans ce fichier pour un état
+  // "sélectionné" : fond plein en couleur d'accent (primary).
+  degreeSquareSelected: {
     backgroundColor: theme.colors.primary,
   },
-  degreeChipLabel: {
-    fontSize: theme.text.size.lg,
+  degreeSquareLabel: {
+    fontSize: theme.text.size.md,
     fontWeight: theme.text.weight.semibold,
     color: theme.colors.text,
   },
@@ -1097,7 +1419,8 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   // Sélecteur de niveau d'enrichissement (triade/7/9/11/13) : une rangée de
-  // chips, même convention visuelle que degreeChipsRow/degreeChip plus haut.
+  // chips, même famille visuelle (surface/primary, sélection en fond plein)
+  // que les autres boutons de choix de ce fichier.
   levelRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1143,86 +1466,83 @@ const styles = StyleSheet.create({
     fontWeight: theme.text.weight.semibold,
     color: theme.colors.text,
   },
-  // Rangée des 2 boutons indépendants de l'accord sélectionné (Tonalité +
-  // Découvrir un accompagnement) : centrée et capable de passer à la ligne
-  // (flexWrap) sur un écran étroit plutôt que de déborder.
-  topButtonsRow: {
+  // CARTE DU HAUT : regroupe style/tonalité/lien modifier (voir le rendu).
+  // Mêmes tokens de couleur que les anciens boutons flottants qu'elle
+  // remplace (surface + bordure primary) : palette INCHANGÉE, seule la
+  // structure (un seul conteneur délimité, plutôt que des boutons épars)
+  // change.
+  summaryCard: {
+    gap: theme.spacing.sm,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    padding: theme.spacing.md,
+  },
+  summaryLabel: {
+    fontSize: theme.text.size.md,
+    fontWeight: theme.text.weight.semibold,
+    color: theme.colors.text,
+  },
+  // Toute la rangée reste pressable (voir le rendu) : "Changer" à droite
+  // rend explicite qu'elle ouvre TonalityModal, sans changer son
+  // comportement (déjà le cas avant, sur l'ancien bouton "tonalityButton").
+  summaryTonalityRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+  },
+  // Pas de token "texte de lien secondaire" dans le thème : primary (couleur
+  // d'accent) + soulignement, même convention que learnMoreButtonLabel plus
+  // bas dans ce fichier pour la même raison (signaler une action secondaire,
+  // discrète, sans lui donner tout le poids visuel d'un bouton plein).
+  summaryTonalityChangeLabel: {
+    fontSize: theme.text.size.sm,
+    fontWeight: theme.text.weight.semibold,
+    color: theme.colors.primary,
+    textDecorationLine: 'underline',
+  },
+  summaryEditLink: {
+    fontSize: theme.text.size.sm,
+    fontWeight: theme.text.weight.semibold,
+    color: theme.colors.primary,
+    textDecorationLine: 'underline',
+  },
+  // EN BAS : les 3 actions globales, pleine largeur et empilées (voir le
+  // rendu) — un SEUL style partagé pour les 3 (plutôt que 3 styles quasi
+  // identiques comme avant, un par bouton) puisqu'elles doivent justement
+  // être visuellement IDENTIQUES en forme/taille, seuls icône et libellé
+  // changent. Mêmes tokens (surface + bordure primary) que les anciens
+  // boutons qu'il remplace : palette inchangée.
+  actionButtonsColumn: {
     gap: theme.spacing.md,
   },
-  accompanimentButton: {
+  actionButton: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: theme.spacing.sm,
+    width: '100%',
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.lg,
-    paddingVertical: theme.spacing.sm,
+    paddingVertical: theme.spacing.md,
     paddingHorizontal: theme.spacing.lg,
     borderWidth: 1,
     borderColor: theme.colors.primary,
   },
-  accompanimentButtonLabel: {
+  // Emoji plutôt qu'une icône vectorielle : @expo/vector-icons n'est pas
+  // installé dans ce projet (déjà vérifié/signalé pour InteractivePiano) —
+  // même repli, cohérent avec le reste de l'app.
+  actionButtonIcon: {
+    fontSize: theme.text.size.lg,
+  },
+  actionButtonLabel: {
     fontSize: theme.text.size.md,
     fontWeight: theme.text.weight.semibold,
     color: theme.colors.text,
   },
-  // Même famille visuelle que accompanimentButton : affiche la tonalité
-  // actuelle (ex: "Ré♭ majeur", voir tonalityLabel dans ResultScreen), ouvre
-  // TonalityModal au tap.
-  tonalityButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
-  },
-  tonalityButtonLabel: {
-    fontSize: theme.text.size.md,
-    fontWeight: theme.text.weight.semibold,
-    color: theme.colors.text,
-  },
-  // Même famille visuelle que accompanimentButton/tonalityButton : ouvre
-  // VoicingModal. Nom distinct de voicingButton (le VRAI toggle par accord,
-  // dans ExpandedChordPanel) pour éviter toute collision dans cette même
-  // feuille de style — voir le commentaire sur VoicingModal pour le choix de
-  // libellé ("Découvrir le voicing", pas "Voicing").
-  voicingDiscoveryButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
-  },
-  voicingDiscoveryButtonLabel: {
-    fontSize: theme.text.size.md,
-    fontWeight: theme.text.weight.semibold,
-    color: theme.colors.text,
-  },
-  // Même famille visuelle que accompanimentButton/tonalityButton/
-  // voicingDiscoveryButton : ouvre EnrichmentModal.
-  enrichmentButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
-    paddingVertical: theme.spacing.sm,
-    paddingHorizontal: theme.spacing.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
-  },
-  enrichmentButtonLabel: {
-    fontSize: theme.text.size.md,
-    fontWeight: theme.text.weight.semibold,
-    color: theme.colors.text,
-  },
-  // Carte d'UNE option de dominante secondaire (EnrichmentModal) : même fond
+  // Carte d'UNE option de dominante secondaire (EnrichmentPanelContent) : même fond
   // que expandedPanel (backGroundExercice), pour la détacher du fond de la
   // carte de modale (elle aussi backGroundExercice) — cohérent avec
   // l'encart alterationExplanation, qui utilise surface pour la même raison
@@ -1280,6 +1600,61 @@ const styles = StyleSheet.create({
     fontSize: theme.text.size.sm,
     color: theme.colors.textMuted,
     textAlign: 'center',
+  },
+  // Navigation entre pages d'EnrichmentPanelContent : flèches + indicateur "X/N" au
+  // centre, même principe visuel que inversionRow dans PianoChord.tsx
+  // (bouton précédent, indicateur, bouton suivant).
+  enrichmentPageNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.md,
+  },
+  enrichmentPageArrowButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.md,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  enrichmentPageArrowLabel: {
+    fontSize: theme.text.size.md,
+    fontWeight: theme.text.weight.semibold,
+    color: theme.colors.text,
+  },
+  enrichmentPageIndicator: {
+    fontSize: theme.text.size.md,
+    fontWeight: theme.text.weight.medium,
+    color: theme.colors.textMuted,
+  },
+  // Liste compacte des 4 cadences (page "Cadences" d'EnrichmentPanelContent) : même
+  // famille visuelle que voicingOptionsRow/voicingOptionButton (VoicingPanelContent).
+  cadenceOptionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: theme.spacing.sm,
+  },
+  cadenceOptionButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  cadenceOptionButtonSelected: {
+    backgroundColor: theme.colors.primary,
+  },
+  cadenceOptionButtonLabel: {
+    fontSize: theme.text.size.sm,
+    fontWeight: theme.text.weight.semibold,
+    color: theme.colors.text,
   },
   // Bouton "En savoir plus" : discret (pas de bordure primary), en bas de la
   // modale — informationnel, pas une action principale.
@@ -1341,7 +1716,7 @@ const styles = StyleSheet.create({
     ...theme.text.title,
     textAlign: 'center',
   },
-  // Onglets de sélection d'accompagnement (AccompanimentModal) : même
+  // Onglets de sélection d'accompagnement (AccompanimentPanelContent) : même
   // famille visuelle que modeButton/tonicButton/levelButton ailleurs dans ce
   // fichier (surface + bordure primary au repos, fond primary une fois
   // sélectionné) pour rester cohérent ; flexWrap pour rester compact même si
@@ -1375,7 +1750,7 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     textAlign: 'center',
   },
-  // Boutons de voicing (VoicingModal) : même famille visuelle que les
+  // Boutons de voicing (VoicingPanelContent) : même famille visuelle que les
   // onglets d'accompagnement/modeButton/tonicButton ailleurs dans ce fichier
   // (surface + bordure primary au repos, fond primary une fois sélectionné).
   voicingOptionsRow: {
@@ -1431,7 +1806,7 @@ const styles = StyleSheet.create({
   // Même famille visuelle que levelButton/voicingButton (ResultScreen) :
   // surface + bordure primary au repos, fond primary plein une fois
   // sélectionné — convention déjà utilisée partout ailleurs dans ce fichier
-  // pour un état "sélectionné" (voir aussi degreeChip).
+  // pour un état "sélectionné" (voir aussi degreeSquare).
   modeButton: {
     alignItems: 'center',
     justifyContent: 'center',
