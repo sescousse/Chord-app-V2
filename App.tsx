@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import RootNavigator from './src/navigation/RootNavigator';
 import AuthStack from './src/navigation/AuthStack';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { ProfileProvider } from './src/context/ProfileContext';
 import { theme } from './src/theme';
 
 // AIGUILLAGE CONDITIONNEL — enveloppe la navigation EXISTANTE (RootNavigator,
@@ -42,10 +43,16 @@ export default function App() {
           ce qui rend useAuth() disponible dans RootNavigation ci-dessus (et,
           plus tard, dans n'importe quel écran de l'app qui en aurait besoin). */}
       <AuthProvider>
-        <NavigationContainer>
-          <RootNavigation />
-          <StatusBar style="auto" />
-        </NavigationContainer>
+        {/* ProfileProvider SOUS AuthProvider (dépend de useAuth(), voir
+            ProfileContext.tsx) et AU-DESSUS de NavigationContainer : rend
+            useProfile() disponible à tous les écrans de la navigation
+            (HomeScreen, ProfileScreen...), comme useAuth() déjà. */}
+        <ProfileProvider>
+          <NavigationContainer>
+            <RootNavigation />
+            <StatusBar style="auto" />
+          </NavigationContainer>
+        </ProfileProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );

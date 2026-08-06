@@ -5,17 +5,19 @@ import LessonCourseScreen from '../screens/LessonCourseScreen';
 import { colors } from '../theme';
 import type { Lesson } from '../dataset/courseTheorie';
 
-// Pile de l'onglet Accueil : seulement 2 routes. "HomeMain" est l'écran
-// d'accueil complet (bannière Parcours/Bibliothèque/Compétences/Perso, voir
-// HomeScreen.tsx). "CourseParcoursScreen" n'a PAS sa propre route ici : la
-// bannière l'affiche comme un simple composant enfant DANS HomeMain (voir le
-// commentaire sur ce choix dans HomeScreen.tsx), pas via une navigation —
-// c'est pourquoi elle n'apparaît pas dans HomeStackParamList. "Lesson", en
-// revanche, doit rester une VRAIE route de pile : c'est l'écran plein écran
-// ouvert quand on tape une leçon depuis l'onglet bannière "Parcours"
-// (CourseParcoursScreen.handleStepPress appelle navigation.navigate('Lesson',
-// { lesson }) ; comme ce composant est rendu à l'intérieur de HomeMain, ce
-// navigate() atterrit bien dans CETTE pile).
+// Pile de l'onglet Accueil. "HomeMain" est l'écran d'accueil complet
+// (bannière Parcours/Bibliothèque/Compétences/Profil, voir HomeScreen.tsx).
+// "CourseParcoursScreen" n'a PAS sa propre route ici : la bannière l'affiche
+// comme un simple composant enfant DANS HomeMain (voir le commentaire sur ce
+// choix dans HomeScreen.tsx), pas via une navigation — c'est pourquoi elle
+// n'apparaît pas dans HomeStackParamList. "Lesson", en revanche, est une
+// VRAIE route de pile : l'écran plein écran ouvert PAR-DESSUS HomeMain
+// quand on tape une leçon depuis l'onglet bannière "Parcours".
+//
+// "UserProfile" (profil d'un autre utilisateur) vivait ici quand "Social"
+// était un onglet de la bannière de l'accueil — Social a maintenant son
+// propre onglet dans la barre du bas, avec sa propre pile dédiée (voir
+// SocialStack.tsx), donc cette route n'a plus sa place ici.
 export type HomeStackParamList = {
   HomeMain: undefined;
   Lesson: { lesson: Lesson };

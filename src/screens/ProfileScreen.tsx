@@ -1,26 +1,12 @@
+import { useCallback, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { theme } from '../theme';
 import { supabase } from '../lib/supabase';
-
-// --- DONNÉES EN DUR — BLOC 1 (en-tête profil) -------------------------------
-// données en dur, à remplacer plus tard (vraie identité une fois l'auth/
-// la persistance branchée).
-const USER_PROFILE = {
-  name: 'Thomas',
-};
-
-// --- DONNÉES EN DUR — BLOC 2 (infos & récap) --------------------------------
-// données en dur, à remplacer plus tard (vraie date d'inscription une fois
-// la persistance branchée).
-const MEMBER_SINCE_LABEL = 'Membre depuis janvier 2026';
-
-// données en dur, à remplacer plus tard (vrai graphe social une fois cette
-// fonctionnalité construite).
-const SOCIAL_STATS = {
-  followers: 0,
-  following: 0,
-};
+import { useAuth } from '../context/AuthContext';
+import { useProfile } from '../context/ProfileContext';
+import { compterAbonnes, compterAbonnements } from '../lib/follows';
 
 type RecapItem = {
   id: string;
@@ -29,16 +15,13 @@ type RecapItem = {
   value: string;
 };
 
-// données en dur, à remplacer plus tard (vraies valeurs calculées une fois
-// la persistance branchée) — un seul tableau, une entrée par item affiché :
-// en ajouter/retirer une suffit à mettre à jour la grille plus bas, sans
-// toucher au rendu.
-const RECAP_ITEMS: RecapItem[] = [
-  { id: 'bestStreak', icon: '🔥', label: 'Meilleur streak', value: '12 jours' },
-  { id: 'favoriteExercise', icon: '🎹', label: 'Exercice préféré', value: "Reconnaissance d'accords" },
-  { id: 'league', icon: '🏅', label: 'Ligue', value: 'Ligue à venir' },
-  { id: 'totalXp', icon: '⭐', label: 'XP total', value: '1 240' },
-];
+// Formate une date Postgres (chaîne ISO renvoyée par Supabase pour
+// "date_inscription") en "mois année" français — ex: "janvier 2026".
+function formatMonthYear(isoDate: string): string {
+  return new Intl.DateTimeFormat('fr-FR', { month: 'long', year: 'numeric' }).format(
+    new Date(isoDate),
+  );
+}
 
 type Achievement = {
   id: string;
@@ -61,6 +44,42 @@ const ACHIEVEMENTS: Achievement[] = [
 ];
 
 export default function ProfileScreen() {
+  const { user } = useAuth();
+  // 3 états exposés par ProfileContext : tant que isProfileLoading est vrai,
+  // "profil" n'est pas encore fiable ; ensuite, soit "profil" est rempli
+  // (succès), soit "profileError" l'est (échec) — voir ProfileContext.tsx.
+  const { profil, isLoading: isProfileLoading, error: profileError } = useProfile();
+
+  const [followersCount, setFollowersCount] = useState<number | null>(null);
+  const [followingCount, setFollowingCount] = useState<number | null>(null);
+
+  // useFocusEffect (pas un simple useEffect) : cet écran est rendu comme un
+  // onglet de la bannière de HomeScreen (voir HomeScreen.tsx), pas démonté
+  // quand on pousse UserProfileScreen par-dessus pour suivre quelqu'un —
+  // sans ça, revenir ici après avoir suivi/plus suivi quelqu'un depuis cet
+  // écran-là afficherait des compteurs périmés. useFocusEffect relance donc
+  // ce chargement à CHAQUE fois que cet écran redevient visible, pas
+  // seulement à son premier montage.
+  useFocusEffect(
+    useCallback(() => {
+      if (!user) return;
+
+      let isActive = true;
+
+      Promise.all([compterAbonnes(user.id), compterAbonnements(user.id)]).then(
+        ([followersResult, followingResult]) => {
+          if (!isActive) return;
+          setFollowersCount(followersResult.count);
+          setFollowingCount(followingResult.count);
+        },
+      );
+
+      return () => {
+        isActive = false;
+      };
+    }, [user]),
+  );
+
   // Pas de navigation manuelle après la déconnexion : signOut() vide la
   // session Supabase, ce qui déclenche onAuthStateChange dans AuthContext
   // et fait basculer tout seul l'aiguillage racine (App.tsx) vers AuthStack.
@@ -70,6 +89,40 @@ export default function ProfileScreen() {
       Alert.alert('Erreur', error.message);
     }
   };
+
+  // Nom affiché : nom_utilisateur si renseigné — pas encore le cas
+  // aujourd'hui, ce champ sera rempli lors d'une prochaine étape
+  // (nom d'utilisateur demandé à l'inscription) — sinon repli sur l'email du
+  // compte connecté (toujours disponible via AuthContext), puis un dernier
+  // repli générique si même l'email manquait.
+  const displayName = isProfileLoading
+    ? '…'
+    : (profil?.nom_utilisateur ?? user?.email ?? 'Utilisateur');
+
+  // Pendant le chargement : "Membre depuis…" (pas de saut de mise en page
+  // une fois la vraie date connue). En erreur, ou si la colonne était vide :
+  // un texte neutre plutôt qu'une date inventée.
+  const memberSinceLabel = isProfileLoading
+    ? 'Membre depuis…'
+    : profil?.date_inscription
+      ? `Membre depuis ${formatMonthYear(profil.date_inscription)}`
+      : "Date d'inscription indisponible";
+
+  // "…" pendant le chargement, "—" si le profil n'a pas pu être chargé
+  // (erreur) — jamais de vraie valeur numérique tant que "profil" n'est pas
+  // confirmé rempli, pour ne jamais afficher un XP/streak périmé ou inventé.
+  const bestStreakValue = isProfileLoading ? '…' : (profil ? `${profil.meilleure_streak} jours` : '—');
+  const totalXpValue = isProfileLoading ? '…' : (profil ? profil.xp.toLocaleString('fr-FR') : '—');
+
+  // Récap : bestStreak/totalXp viennent maintenant du profil Supabase ;
+  // favoriteExercise/league restent EN DUR (hors périmètre de cette étape,
+  // voir la consigne — pas encore de données réelles pour ces 2-là).
+  const recapItems: RecapItem[] = [
+    { id: 'bestStreak', icon: '🔥', label: 'Meilleur streak', value: bestStreakValue },
+    { id: 'favoriteExercise', icon: '🎹', label: 'Exercice préféré', value: "Reconnaissance d'accords" },
+    { id: 'league', icon: '🏅', label: 'Ligue', value: 'Ligue à venir' },
+    { id: 'totalXp', icon: '⭐', label: 'XP total', value: totalXpValue },
+  ];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -105,8 +158,14 @@ export default function ProfileScreen() {
           <Text style={styles.avatarIcon}>👤</Text>
         </View>
 
-        <Text style={styles.profileName}>{USER_PROFILE.name}</Text>
+        <Text style={styles.profileName}>{displayName}</Text>
       </View>
+
+      {/* Message discret : affiché SEULEMENT si le chargement du profil a
+          échoué (ex: pas de réseau) — les champs concernés retombent déjà
+          chacun sur un repli neutre ("—") ci-dessus/ci-dessous, ce message
+          explique juste pourquoi en un mot, sans bloquer le reste de l'écran. */}
+      {profileError && <Text style={styles.profileErrorText}>Profil indisponible pour l'instant.</Text>}
 
       {/* BLOC 2 — INFOS & RÉCAP : date d'inscription, abonnés/abonnements +
           ajout d'amis, récapitulatif (streak/exercice préféré/ligue/XP), et
@@ -114,7 +173,7 @@ export default function ProfileScreen() {
           des informations "à propos de ce profil", au même niveau, à la
           différence du bloc 1 qui est l'en-tête d'identité. */}
       <View style={styles.card}>
-        <Text style={styles.memberSince}>{MEMBER_SINCE_LABEL}</Text>
+        <Text style={styles.memberSince}>{memberSinceLabel}</Text>
 
         {/* flex: 1 sur chaque stat (pas de largeur en %) : les 2 se partagent
             l'espace disponible à parts égales sans jamais déborder, quelle
@@ -123,11 +182,11 @@ export default function ProfileScreen() {
             bas). */}
         <View style={styles.socialRow}>
           <View style={styles.socialStat}>
-            <Text style={styles.socialValue}>{SOCIAL_STATS.followers}</Text>
+            <Text style={styles.socialValue}>{followersCount ?? '…'}</Text>
             <Text style={styles.socialLabel}>Abonnés</Text>
           </View>
           <View style={styles.socialStat}>
-            <Text style={styles.socialValue}>{SOCIAL_STATS.following}</Text>
+            <Text style={styles.socialValue}>{followingCount ?? '…'}</Text>
             <Text style={styles.socialLabel}>Abonnements</Text>
           </View>
         </View>
@@ -145,7 +204,7 @@ export default function ProfileScreen() {
 
         <Text style={theme.text.title}>Récapitulatif</Text>
         <View style={styles.tileGrid}>
-          {RECAP_ITEMS.map((item) => (
+          {recapItems.map((item) => (
             <View key={item.id} style={styles.recapTile}>
               <Text style={styles.recapIcon}>{item.icon}</Text>
               <Text style={styles.recapValue}>{item.value}</Text>
@@ -264,6 +323,12 @@ const styles = StyleSheet.create({
   memberSince: {
     fontSize: theme.text.size.sm,
     color: theme.colors.textMuted,
+  },
+  profileErrorText: {
+    color: theme.colors.danger,
+    fontSize: theme.text.size.sm,
+    fontWeight: theme.text.weight.medium,
+    textAlign: 'center',
   },
   socialRow: {
     flexDirection: 'row',

@@ -1,18 +1,24 @@
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { getFocusedRouteNameFromRoute } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 
 import ExercisesStack from './ExercisesStack';
 import HomeStack from './HomeStack';
+import SocialStack from './SocialStack';
 import { colors, tabBar } from '../theme';
 
 // Les onglets "Cours" et "Profil" ont été retirés (voir HomeStack.tsx /
 // HomeScreen.tsx) : leur contenu (Parcours, Bibliothèque, et maintenant
 // Profil) est désormais accessible depuis la bannière de sous-navigation de
-// l'accueil (onglets Parcours / Bibliothèque / Compétences / Profil). La
-// barre du bas ne garde donc plus que ces 2 onglets.
+// l'accueil (onglets Parcours / Bibliothèque / Compétences / Profil).
+//
+// "Social" (annuaire en bulles), lui, vivait dans cette même bannière et en
+// est retiré ICI (voir HomeScreen.tsx) pour rejoindre la barre du bas — un
+// seul chemin vers cet écran, pas deux.
 export type RootTabParamList = {
   Home: undefined;
   Exercises: undefined;
+  Social: undefined;
 };
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
@@ -52,16 +58,43 @@ export default function RootNavigator() {
           // pour un rendu plein écran ; sur "HomeMain" (accueil, quel que
           // soit l'onglet actif de sa bannière), on retombe sur le style
           // habituel (tabBar, défini dans le thème) et la tab bar réapparaît
-          // automatiquement.
+          // automatiquement. Ce masquage est spécifique à CET onglet (ses
+          // "options" ne s'appliquent que quand Home est focus) : ouvrir
+          // l'onglet Social par-dessus n'y change rien, voir plus bas.
           tabBarStyle:
             getFocusedRouteNameFromRoute(route) === 'Lesson' ? { display: 'none' } : tabBar,
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'home' : 'home-outline'} size={size} color={color} />
+          ),
         })}
       />
       {/* headerShown: false ici car ExercisesStack a déjà ses propres headers (sinon deux barres superposées). */}
       <Tab.Screen
         name="Exercises"
         component={ExercisesStack}
-        options={{ title: 'Exercices', headerShown: false }}
+        options={{
+          title: 'Exercices',
+          headerShown: false,
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons
+              name={focused ? 'musical-notes' : 'musical-notes-outline'}
+              size={size}
+              color={color}
+            />
+          ),
+        }}
+      />
+      {/* headerShown: false ici car SocialStack a déjà son propre header par écran (voir SocialStack.tsx). */}
+      <Tab.Screen
+        name="Social"
+        component={SocialStack}
+        options={{
+          title: 'Social',
+          headerShown: false,
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'people' : 'people-outline'} size={size} color={color} />
+          ),
+        }}
       />
     </Tab.Navigator>
   );

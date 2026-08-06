@@ -6,6 +6,7 @@ import { theme } from '../theme';
 import CourseParcoursScreen from './CourseParcoursScreen';
 import LibraryScreen from './LibraryScreen';
 import ProfileScreen from './ProfileScreen';
+import { useProfile } from '../context/ProfileContext';
 
 // Icône flamme : @expo/vector-icons n'est pas installé dans ce projet
 // (vérifié : absent de package.json et node_modules) — repli emoji, même
@@ -14,23 +15,14 @@ import ProfileScreen from './ProfileScreen';
 // improResult.tsx).
 const STREAK_ICON = '🔥';
 
-// Nombre de jours de connexion d'affilée — données EN DUR, à remplacer par
-// la vraie streak plus tard (ex: calculée depuis un historique de sessions
-// une fois la persistance branchée). Constante séparée (plutôt que directement
-// dans STATS ci-dessous) car réutilisée à 2 endroits : la carte héros ET la
-// grille de statistiques — une seule source de vérité pour cette valeur.
-const streakDays = 5;
-
-// Statistiques du bloc "Statistiques" — données EN DUR pour l'instant
-// (aucune persistance encore). Un seul objet, une clé par statistique :
-// remplacer STATS (ou une seule de ses valeurs) suffira à brancher les
-// vraies données plus tard, sans toucher au rendu plus bas.
-const STATS = {
+// Statistiques PAS ENCORE branchées à une vraie source (xp et streak, elles,
+// viennent maintenant du profil Supabase — voir useProfile() dans le
+// composant plus bas) — données EN DUR, à remplacer plus tard une fois ces
+// mesures réellement suivies.
+const STATIC_STATS = {
   exercisesDone: 12,
   lessonsRead: 4,
   avgDailyPracticeMinutes: 18,
-  totalXp: 1240,
-  streakDays,
 };
 
 type StatDisplayItem = {
@@ -40,22 +32,6 @@ type StatDisplayItem = {
   value: string;
 };
 
-// Config d'AFFICHAGE de chaque statistique (icône + libellé + valeur déjà
-// mise en forme) : dérivée de STATS ci-dessus, jamais de valeur retapée à la
-// main — remplacer STATS met donc aussi à jour l'affichage automatiquement.
-const STAT_DISPLAY_ITEMS: StatDisplayItem[] = [
-  { id: 'exercises', icon: '🏋️', label: 'Exercices faits', value: String(STATS.exercisesDone) },
-  { id: 'lessons', icon: '📖', label: 'Cours lus', value: String(STATS.lessonsRead) },
-  {
-    id: 'avgTime',
-    icon: '⏱️',
-    label: 'Temps moyen / jour',
-    value: `${STATS.avgDailyPracticeMinutes} min`,
-  },
-  { id: 'xp', icon: '⭐', label: 'XP total', value: STATS.totalXp.toLocaleString('fr-FR') },
-  { id: 'streak', icon: STREAK_ICON, label: 'Streak', value: `${STATS.streakDays} j` },
-];
-
 // --- BANNIÈRE DE SOUS-NAVIGATION ---------------------------------------
 // 4 onglets pilotés par un simple state local (PAS un navigateur : consigne
 // explicite de ne pas ajouter de dépendance de navigation pour ça) — changer
@@ -63,6 +39,10 @@ const STAT_DISPLAY_ITEMS: StatDisplayItem[] = [
 // sous la bannière change (voir le switch dans le composant plus bas).
 // BANNER_TABS pilote à la fois l'ordre et le libellé affiché : un seul
 // tableau à modifier pour ajouter/renommer/réordonner un onglet.
+//
+// "Social" vivait ici (annuaire en bulles) : il a maintenant son propre
+// onglet dans la barre du bas (voir RootNavigator.tsx / SocialStack.tsx),
+// pour éviter d'avoir 2 chemins vers le même écran.
 type TabKey = 'parcours' | 'bibliotheque' | 'competences' | 'profil';
 
 interface BannerTab {
@@ -84,6 +64,34 @@ export default function HomeScreen() {
   // d'accueil d'origine (streak + stats + TODO objectifs/arbre), inchangé
   // ci-dessous.
   const [activeTab, setActiveTab] = useState<TabKey>('competences');
+
+  // 3 états exposés par ProfileContext (voir ProfileContext.tsx) : tant que
+  // isProfileLoading est vrai, "profil" n'est pas encore fiable ; ensuite,
+  // soit "profil" est rempli (succès), soit "profileError" l'est (échec).
+  const { profil, isLoading: isProfileLoading, error: profileError } = useProfile();
+
+  // "…" pendant le chargement, "—" en cas d'erreur — jamais un chiffre
+  // périmé/inventé tant que le profil n'est pas confirmé chargé (même
+  // logique que ProfileScreen.tsx, dupliquée ici car propre à CET écran :
+  // pas de source commune à extraire pour 2 lignes de calcul).
+  const streakDisplay = isProfileLoading ? '…' : profil ? String(profil.streak_actuelle) : '—';
+  const totalXpDisplay = isProfileLoading ? '…' : profil ? profil.xp.toLocaleString('fr-FR') : '—';
+
+  // Config d'AFFICHAGE de chaque statistique (icône + libellé + valeur déjà
+  // mise en forme) — xp/streak dépendent du profil chargé ci-dessus, donc
+  // calculées ICI (dans le composant), plus au niveau du module comme avant.
+  const STAT_DISPLAY_ITEMS: StatDisplayItem[] = [
+    { id: 'exercises', icon: '🏋️', label: 'Exercices faits', value: String(STATIC_STATS.exercisesDone) },
+    { id: 'lessons', icon: '📖', label: 'Cours lus', value: String(STATIC_STATS.lessonsRead) },
+    {
+      id: 'avgTime',
+      icon: '⏱️',
+      label: 'Temps moyen / jour',
+      value: `${STATIC_STATS.avgDailyPracticeMinutes} min`,
+    },
+    { id: 'xp', icon: '⭐', label: 'XP total', value: totalXpDisplay },
+    { id: 'streak', icon: STREAK_ICON, label: 'Streak', value: `${streakDisplay} j` },
+  ];
 
   return (
     <View style={styles.screen}>
@@ -157,10 +165,18 @@ export default function HomeScreen() {
           <View style={[styles.card, styles.streakCard]}>
             <Text style={styles.streakIcon}>{STREAK_ICON}</Text>
             <View style={styles.streakTextGroup}>
-              <Text style={styles.streakValue}>{streakDays} jours</Text>
+              <Text style={styles.streakValue}>{streakDisplay} jours</Text>
               <Text style={styles.streakLabel}>de connexion d'affilée</Text>
             </View>
           </View>
+
+          {/* Message discret : affiché SEULEMENT si le chargement du profil
+              a échoué — les valeurs concernées (xp, streak) retombent déjà
+              chacune sur "—" ci-dessus/ci-dessous, ce message explique juste
+              pourquoi, sans bloquer le reste de la page. */}
+          {profileError && (
+            <Text style={styles.profileErrorText}>Profil indisponible pour l'instant.</Text>
+          )}
 
           {/* TODO: bloc objectifs */}
 
@@ -301,6 +317,12 @@ const styles = StyleSheet.create({
     fontSize: theme.text.size.md,
     fontWeight: theme.text.weight.medium,
     color: '#FFFFFF',
+  },
+  profileErrorText: {
+    color: theme.colors.danger,
+    fontSize: theme.text.size.sm,
+    fontWeight: theme.text.weight.medium,
+    textAlign: 'center',
   },
   // flexDirection: 'row' + flexWrap: 'wrap' : les tuiles se placent côte à
   // côte et reviennent à la ligne automatiquement dès qu'il n'y a plus de
