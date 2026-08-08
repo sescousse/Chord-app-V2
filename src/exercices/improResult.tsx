@@ -224,8 +224,6 @@ export function ExpandedChordPanel({ degree, scale, tonic, level, onSelectLevel 
         </View>
       )}
 
-      {/* TODO: son / extrait à ajouter plus tard */}
-
       {/* Pas de sélecteur de niveau pour la dominante secondaire : elle est
           TOUJOURS une 7e de dominante, ce n'est pas un choix (voir le
           commentaire sur isSecondaryDominant plus haut) — les extensions
@@ -600,8 +598,6 @@ export function VoicingPanelContent({ isOpen }: VoicingPanelContentProps) {
         showInversionControls={false}
         showArpeggioButton={false}
       />
-
-      {/* TODO: son */}
 
       {/* Explication SPÉCIFIQUE au voicing sélectionné, sous le clavier —
           distincte de la définition générale affichée plus haut. */}

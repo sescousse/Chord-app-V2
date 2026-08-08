@@ -5,6 +5,7 @@ import { Interval, Note } from 'tonal';
 
 import { theme } from '../theme';
 import { fitNotesToRange, invertChord } from '../dataset/chordUtils';
+import { jouerAccord } from '../lib/piano';
 
 // Props du composant : l'accord à afficher. On type ça avec une interface
 // plutôt qu'un "any" pour que TypeScript nous protège si on passe autre
@@ -744,6 +745,24 @@ export function PianoChord({
     setInversion((current) => (current + 1) % totalInversions);
   };
 
+  // BOUTON "ÉCOUTER" — joue l'accord PLAQUÉ (toutes les notes en même temps,
+  // voir jouerAccord dans src/lib/piano.ts) tel qu'il est RÉELLEMENT affiché
+  // en ce moment : "displayedNotes" est déjà la liste finale calculée plus
+  // haut pour le dessin du clavier (renversement courant + ajustement
+  // d'octave via fitNotesToRange inclus) — on la réutilise TELLE QUELLE, pas
+  // de recalcul séparé, pour garantir que ce qu'on entend correspond
+  // exactement à ce qui est montré. jouerAccord() gère elle-même la
+  // polyphonie et la libération des ressources (voir ses commentaires) :
+  // ce composant n'a rien de plus à faire que l'appeler.
+  const handleListenPress = () => {
+    jouerAccord(displayedNotes).catch((error) => {
+      // Pas d'affichage d'erreur dédié ici (bouton simple, pas d'état de
+      // chargement/erreur porté par PianoChord) — au moins visible en
+      // console pour le débogage si la lecture échoue.
+      console.warn('jouerAccord a échoué :', error);
+    });
+  };
+
   return (
     <View style={styles.container} onLayout={handleContainerLayout}>
     <View style={{ width: keyboardWidth }}>
@@ -914,6 +933,15 @@ export function PianoChord({
       )}
     </View>
     </View>
+
+      {/* Bouton "Écouter" : joue l'accord plaqué EXACTEMENT tel qu'affiché
+          (voir handleListenPress). Toujours affiché, quel que soit l'appelant
+          (écran résultat impro, carrousel de Crée ta progression, panneaux
+          voicing/accompagnement) — un seul point d'intégration ici plutôt que
+          de dupliquer ce bouton dans chaque écran. */}
+      <Pressable style={styles.listenButton} onPress={handleListenPress}>
+        <Text style={styles.listenButtonLabel}>🔊 Écouter</Text>
+      </Pressable>
 
       {/* Navigation entre renversements, sous le clavier : bouton précédent,
           indicateur "X/N" (renversement courant / nombre total), bouton
@@ -1174,6 +1202,24 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primary,
   },
   arpeggioButtonLabel: {
+    fontSize: theme.text.size.md,
+    fontWeight: theme.text.weight.semibold,
+    color: theme.colors.text,
+  },
+  // Même famille visuelle que inversionButton/arpeggioButton (pill grise,
+  // contour primary) : ce bouton rejoint la même rangée de contrôles, pas de
+  // raison de le traiter différemment.
+  listenButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.md,
+    paddingVertical: theme.spacing.xs,
+    paddingHorizontal: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  listenButtonLabel: {
     fontSize: theme.text.size.md,
     fontWeight: theme.text.weight.semibold,
     color: theme.colors.text,
