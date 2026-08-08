@@ -113,3 +113,82 @@ export async function compterAbonnements(idUtilisateur: string): Promise<CountRe
   }
   return { count: count ?? 0, error: null };
 }
+
+// --- DÉTECTION D'AMITIÉ MUTUELLE --------------------------------------------
+
+// Type de relation avec un autre utilisateur : "ami" (suivi réciproque),
+// "suivi" (à sens unique, je le suis mais il ne me suit pas), ou null
+// (aucune relation particulière — pas de badge à afficher).
+export type TypeRelation = 'ami' | 'suivi' | null;
+
+// Mes relations de suivi dans LES DEUX SENS, sous forme de Set (recherche
+// O(1) par id) — voir chargerRelations()/determinerTypeRelation() ci-dessous.
+export type RelationsUtilisateur = {
+  // Ids que JE suis (mes abonnements).
+  jeSuis: Set<string>;
+  // Ids qui ME suivent (mes abonnés).
+  meSuivent: Set<string>;
+};
+
+type RelationsResult = { relations: RelationsUtilisateur | null; error: string | null };
+
+// CHARGE mes relations complètes en SEULEMENT 2 REQUÊTES (pas une par
+// utilisateur affiché ailleurs, ex: chaque bulle de SocialScreen.tsx) :
+// 1) toutes les lignes où JE suis "suiveur" (qui je suis)
+// 2) toutes les lignes où JE suis "suivi" (qui me suit)
+// Les deux partent en parallèle (Promise.all). Le type de relation avec
+// N'IMPORTE QUEL utilisateur se déduit ENSUITE localement (voir
+// determinerTypeRelation), sans requête réseau supplémentaire — c'est ce qui
+// rend l'affichage d'une LISTE d'utilisateurs (potentiellement nombreuse)
+// efficace : le coût réseau reste constant (2 requêtes), pas proportionnel
+// au nombre d'utilisateurs affichés.
+export async function chargerRelations(): Promise<RelationsResult> {
+  const monId = await getCurrentUserId();
+  if (!monId) {
+    return { relations: null, error: 'Aucun utilisateur connecté.' };
+  }
+
+  const [jeSuisResult, meSuiventResult] = await Promise.all([
+    supabase.from('suivis').select('suivi').eq('suiveur', monId),
+    supabase.from('suivis').select('suiveur').eq('suivi', monId),
+  ]);
+
+  if (jeSuisResult.error) {
+    return { relations: null, error: jeSuisResult.error.message };
+  }
+  if (meSuiventResult.error) {
+    return { relations: null, error: meSuiventResult.error.message };
+  }
+
+  // Cast explicite (pas de schéma "Database" généré depuis Supabase, même
+  // raison qu'ailleurs dans l'app, ex: ProfileContext.tsx) — jamais de "any".
+  const jeSuisRows = jeSuisResult.data as { suivi: string }[];
+  const meSuiventRows = meSuiventResult.data as { suiveur: string }[];
+
+  return {
+    relations: {
+      jeSuis: new Set(jeSuisRows.map((row) => row.suivi)),
+      meSuivent: new Set(meSuiventRows.map((row) => row.suiveur)),
+    },
+    error: null,
+  };
+}
+
+// DÉTERMINE le type de relation avec idCible à partir des Sets déjà chargés
+// par chargerRelations() — purement local (Set.has(), pas de requête) :
+// - "ami" : je le suis ET il me suit (présent dans les 2 Sets à la fois) →
+//   suivi réciproque.
+// - "suivi" : je le suis, mais il ne me suit pas en retour.
+// - null : je ne le suis pas — aucune relation à signaler (que lui me suive
+//   ou non n'a pas de badge dédié dans ce périmètre).
+export function determinerTypeRelation(
+  idCible: string,
+  relations: RelationsUtilisateur,
+): TypeRelation {
+  const jeLeSuis = relations.jeSuis.has(idCible);
+  const ilMeSuit = relations.meSuivent.has(idCible);
+
+  if (jeLeSuis && ilMeSuit) return 'ami';
+  if (jeLeSuis) return 'suivi';
+  return null;
+}

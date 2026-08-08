@@ -7,14 +7,20 @@ import HomeStack from './HomeStack';
 import SocialStack from './SocialStack';
 import { colors, tabBar } from '../theme';
 
-// Les onglets "Cours" et "Profil" ont été retirés (voir HomeStack.tsx /
-// HomeScreen.tsx) : leur contenu (Parcours, Bibliothèque, et maintenant
-// Profil) est désormais accessible depuis la bannière de sous-navigation de
-// l'accueil (onglets Parcours / Bibliothèque / Compétences / Profil).
+// L'onglet "Cours" a été retiré (voir HomeStack.tsx / HomeScreen.tsx) : son
+// contenu (Parcours, Bibliothèque) est désormais accessible depuis la
+// bannière de sous-navigation de l'accueil (Parcours / Bibliothèque /
+// Compétences).
 //
-// "Social" (annuaire en bulles), lui, vivait dans cette même bannière et en
-// est retiré ICI (voir HomeScreen.tsx) pour rejoindre la barre du bas — un
-// seul chemin vers cet écran, pas deux.
+// "Social" (annuaire en bulles) et "Profil" (mon profil personnel) vivaient
+// tous les deux ailleurs (bannière de l'accueil pour Profil, cet onglet-ci
+// pour Social) et sont maintenant FUSIONNÉS ici, dans une seule page (voir
+// ProfileScreen.tsx, qui inclut désormais le bloc "Ajouter des amis") — d'où
+// le libellé/l'icône "Profil" ci-dessous. La clé de route "Social" et le nom
+// du fichier SocialStack.tsx, eux, sont restés inchangés (identifiants
+// internes seulement, voir le commentaire dans SocialStack.tsx) : les
+// renommer n'aurait rien changé pour l'utilisateur, juste plus de fichiers à
+// toucher pour le même résultat.
 export type RootTabParamList = {
   Home: undefined;
   Exercises: undefined;
@@ -84,15 +90,23 @@ export default function RootNavigator() {
           ),
         }}
       />
-      {/* headerShown: false ici car SocialStack a déjà son propre header par écran (voir SocialStack.tsx). */}
+      {/* headerShown: false ici car SocialStack a déjà son propre header par
+          écran (voir SocialStack.tsx). title/icône "Profil" : cet onglet
+          affiche maintenant ma page profil personnelle (fusionnée avec
+          l'ancienne page Social, voir ProfileScreen.tsx) — seul le libellé
+          visible change, la route reste "Social" en interne. */}
       <Tab.Screen
         name="Social"
         component={SocialStack}
         options={{
-          title: 'Social',
+          title: 'Profil',
           headerShown: false,
           tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons name={focused ? 'people' : 'people-outline'} size={size} color={color} />
+            <Ionicons
+              name={focused ? 'person-circle' : 'person-circle-outline'}
+              size={size}
+              color={color}
+            />
           ),
         }}
       />

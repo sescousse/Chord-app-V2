@@ -5,7 +5,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { theme } from '../theme';
 import CourseParcoursScreen from './CourseParcoursScreen';
 import LibraryScreen from './LibraryScreen';
-import ProfileScreen from './ProfileScreen';
 import { useProfile } from '../context/ProfileContext';
 
 // Icône flamme : @expo/vector-icons n'est pas installé dans ce projet
@@ -33,17 +32,19 @@ type StatDisplayItem = {
 };
 
 // --- BANNIÈRE DE SOUS-NAVIGATION ---------------------------------------
-// 4 onglets pilotés par un simple state local (PAS un navigateur : consigne
+// 3 onglets pilotés par un simple state local (PAS un navigateur : consigne
 // explicite de ne pas ajouter de dépendance de navigation pour ça) — changer
 // d'onglet ne fait donc jamais naviguer nulle part, seul le contenu rendu
 // sous la bannière change (voir le switch dans le composant plus bas).
 // BANNER_TABS pilote à la fois l'ordre et le libellé affiché : un seul
 // tableau à modifier pour ajouter/renommer/réordonner un onglet.
 //
-// "Social" vivait ici (annuaire en bulles) : il a maintenant son propre
-// onglet dans la barre du bas (voir RootNavigator.tsx / SocialStack.tsx),
-// pour éviter d'avoir 2 chemins vers le même écran.
-type TabKey = 'parcours' | 'bibliotheque' | 'competences' | 'profil';
+// "Social" vivait ici (annuaire en bulles), puis a rejoint son propre onglet
+// dans la barre du bas. "Profil" (mon profil personnel) vivait ICI aussi :
+// il est maintenant FUSIONNÉ dans cette même page Social/Profil du bas (voir
+// ProfileScreen.tsx, qui inclut désormais le bloc "Ajouter des amis") — un
+// seul chemin vers mon profil, plus de doublon entre bannière et barre du bas.
+type TabKey = 'parcours' | 'bibliotheque' | 'competences';
 
 interface BannerTab {
   key: TabKey;
@@ -54,7 +55,6 @@ const BANNER_TABS: BannerTab[] = [
   { key: 'parcours', label: 'Parcours' },
   { key: 'bibliotheque', label: 'Bibliothèque' },
   { key: 'competences', label: 'Compétences' },
-  { key: 'profil', label: 'Profil' },
 ];
 
 export default function HomeScreen() {
@@ -95,32 +95,27 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* EN-TÊTE DE PAGE — barre de titre à part, EMPILÉE au-dessus de la
-          bannière de sous-navigation (juste en dessous) plutôt que fusionnée
-          avec elle : "Accueil" deviendra le nom de l'app plus tard, la zone
-          de droite (styles.pageHeaderRight) est prévue pour les futurs
-          éléments (monnaie, clés, réglages — voir le TODO dans le JSX),
-          actuellement vide. C'est CET en-tête qui gère maintenant la safe
-          area (paddingTop = insets.top + spacing, comme la topBar de
-          LessonCourseScreen) puisqu'il est désormais le tout premier élément
-          en haut de l'écran ; la bannière juste en dessous n'a donc plus
-          besoin de son propre padding de sécurité. */}
-      <View style={[styles.pageHeader, { paddingTop: insets.top + theme.spacing.md }]}>
-        <Text style={theme.text.title}>Accueil</Text>
-        <View style={styles.pageHeaderRight}>{/* TODO: monnaie, clés, réglages */}</View>
-      </View>
+      {/* Barre de titre "Accueil" retirée (demande explicite) : ce n'était
+          PAS un header de navigation (HomeStack a déjà headerShown: false
+          pour "HomeMain") mais un bloc de titre affiché DANS le contenu de
+          la page — supprimé ici. C'est maintenant la BANNIÈRE ci-dessous qui
+          devient le tout premier élément en haut de l'écran, elle reprend
+          donc la responsabilité de la safe area (paddingTop = insets.top +
+          spacing, même principe que l'ex-en-tête ou que la topBar de
+          LessonCourseScreen) pour que son contenu ne colle pas à la zone
+          système (encoche/barre de statut). TODO: les futurs éléments de
+          droite prévus ici (monnaie, clés, réglages) devront trouver une
+          nouvelle place puisque ce bloc n'existe plus. */}
 
-      {/* BANNIÈRE — rangée de 4 onglets cliquables, l'onglet actif souligné
+      {/* BANNIÈRE — rangée de 3 onglets cliquables, l'onglet actif souligné
           avec l'accent du thème (theme.colors.primary, déjà la couleur
           "active" de la tab bar du bas, voir RootNavigator.tsx : cohérent
           avec ce que l'app utilise déjà pour "onglet sélectionné"). Pas de
           nouveau token nécessaire : composée à partir de tokens existants
           (surface/border/primary/textMuted), comme d'autres styles "sans
           équivalent direct" ailleurs dans l'app (ex: le bouton de
-          LessonCourseScreen). Zone de contenu de la page (au même titre que
-          Parcours/Bibliothèque/...), PAS de la chrome système : elle vient
-          sous l'en-tête ci-dessus, qui s'occupe seul de la safe area. */}
-      <View style={styles.banner}>
+          LessonCourseScreen). */}
+      <View style={[styles.banner, { paddingTop: insets.top + theme.spacing.md }]}>
         {BANNER_TABS.map((tab) => {
           const isActive = tab.key === activeTab;
           return (
@@ -149,13 +144,6 @@ export default function HomeScreen() {
           leçon plein écran, tab bar masquée — voir RootNavigator.tsx). */}
       {activeTab === 'parcours' && <CourseParcoursScreen />}
       {activeTab === 'bibliotheque' && <LibraryScreen />}
-      {/* "Profil" : rend ProfileScreen, qui contient maintenant la vraie page
-          profil (avatar, récap, succès) — l'ancien onglet "Profil" de la
-          barre du bas a été retiré (voir RootNavigator.tsx), ce composant
-          est réutilisé tel quel ici. Écran autonome, sans prop ni dépendance
-          de navigation propre, donc directement affichable comme n'importe
-          quel composant enfant. */}
-      {activeTab === 'profil' && <ProfileScreen />}
 
       {activeTab === 'competences' && (
         <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -206,34 +194,10 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   // Conteneur racine de l'écran : la bannière et la zone de contenu (l'un
-  // des 4 onglets) empilés verticalement, plein écran.
+  // des 3 onglets) empilés verticalement, plein écran.
   screen: {
     flex: 1,
     backgroundColor: theme.colors.background,
-  },
-  // Barre de titre, distincte de la bannière d'onglets juste en dessous
-  // (voir styles.banner) : même fond (theme.colors.surface) et même type de
-  // séparation (bordure basse) que la bannière, pour rester visuellement de
-  // la même famille "chrome du haut" tout en restant 2 blocs empilés
-  // séparés (la bordure de CHACUN des deux les délimite l'un de l'autre).
-  pageHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: theme.colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: theme.colors.border,
-    paddingHorizontal: theme.spacing.lg,
-    paddingBottom: theme.spacing.md,
-  },
-  // Zone réservée aux futurs éléments de droite (monnaie, clés, réglages) :
-  // vide pour l'instant, donc sans dimension propre — "row" + "gap" déjà en
-  // place pour quand plusieurs éléments y seront ajoutés côte à côte, sans
-  // rien à retoucher ici à ce moment-là.
-  pageHeaderRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: theme.spacing.sm,
   },
   banner: {
     flexDirection: 'row',

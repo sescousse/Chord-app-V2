@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Animated, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -8,6 +8,9 @@ import type { HomeStackParamList } from '../navigation/HomeStack';
 import type { CoursePage } from '../dataset/courseTheorie';
 import LessonIntroScreen from './LessonIntroScreen';
 import { InteractivePiano } from '../components/InteractivePiano';
+import { useProfile } from '../context/ProfileContext';
+import { useSucces } from '../context/SuccesContext';
+import { XP_COURS, XP_FEEDBACK_DURATION_MS } from '../lib/xpRewards';
 
 // NativeStackScreenProps<HomeStackParamList, 'Lesson'> donne à la fois
 // "route" (la Lesson complète voyage en paramètre de navigation, voir
@@ -18,6 +21,24 @@ type LessonCourseScreenProps = NativeStackScreenProps<HomeStackParamList, 'Lesso
 
 export default function LessonCourseScreen({ route, navigation }: LessonCourseScreenProps) {
   const { lesson } = route.params;
+
+  const { addXp } = useProfile();
+  const { debloquerSucces } = useSucces();
+
+  // FEEDBACK XP — "+20 XP" affiché brièvement quand la leçon se termine
+  // (voir handleFinishLesson plus bas), même pattern que dans
+  // improResult.tsx (état + minuteur annulable via ref, nettoyé au
+  // démontage).
+  const [xpFeedback, setXpFeedback] = useState<string | null>(null);
+  const xpFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (xpFeedbackTimeoutRef.current) {
+        clearTimeout(xpFeedbackTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Affiche d'abord LessonIntroScreen (titre de la leçon + conseils, fondu
   // d'entrée) avant la page 1 du cours. true au montage ; passe à false une
@@ -74,13 +95,56 @@ export default function LessonCourseScreen({ route, navigation }: LessonCourseSc
 
   // Navigation entre pages : une seule page de la leçon à la fois. Sur la
   // dernière page, il n'y a plus de page suivante à afficher : le bouton
-  // referme alors cet écran (retour au parcours) plutôt que d'avancer.
+  // termine alors la leçon (XP + retour au parcours) plutôt que d'avancer.
   const handlePressContinue = () => {
     if (isLastPage) {
-      navigation.goBack();
+      handleFinishLesson();
       return;
     }
     setPageIndex((index) => index + 1);
+  };
+
+  // DÉCLENCHEUR XP — le bouton "Terminer" existait déjà (dernière page de la
+  // leçon) : c'est le point de complétion naturel d'un cours, contrairement
+  // aux exercices d'impro (voir improResult.tsx pour ce cas-là, sans point
+  // de complétion préexistant).
+  //
+  // TODO: éviter de re-donner l'XP pour un contenu déjà complété (nécessite
+  // la progression) — pour cette première version, l'XP est donné à CHAQUE
+  // passage sur "Terminer", même répété (voir la consigne).
+  const handleFinishLesson = async () => {
+    const { error } = await addXp(XP_COURS);
+    if (error) {
+      // L'échec de l'XP ne doit pas empêcher de sortir de la leçon —
+      // simplement prévenir, puis fermer l'écran comme avant.
+      Alert.alert('Erreur', error);
+      navigation.goBack();
+      return;
+    }
+
+    // SUCCÈS "Première leçon" — appelé APRÈS l'XP de routine ci-dessus
+    // (jamais en parallèle) : addXp() lit-puis-écrit l'xp du profil de façon
+    // non atomique (voir son propre commentaire dans ProfileContext.tsx) ;
+    // enchaîner plutôt que lancer les 2 gains d'XP en même temps réduit le
+    // risque qu'ils s'écrasent l'un l'autre. "void" (pas de await) : ne
+    // bloque jamais la sortie de la leçon — debloquerSucces() ne fait rien
+    // si "premiere_lecon" est déjà débloqué (voir SuccesContext.tsx), donc
+    // sûr à appeler à CHAQUE leçon terminée, pas seulement la toute première ;
+    // si c'est effectivement la première fois, l'écran de célébration
+    // s'affiche tout seul par-dessus (voir SuccesCelebrationOverlay.tsx),
+    // indépendamment de la fermeture de CET écran juste en dessous.
+    void debloquerSucces('premiere_lecon');
+
+    setXpFeedback(`+${XP_COURS} XP`);
+    // Referme l'écran APRÈS avoir laissé le temps de voir le feedback (sinon
+    // il ne serait jamais visible, l'écran se fermant immédiatement) — même
+    // délai que celui qui efface normalement ce texte tout seul.
+    if (xpFeedbackTimeoutRef.current) {
+      clearTimeout(xpFeedbackTimeoutRef.current);
+    }
+    xpFeedbackTimeoutRef.current = setTimeout(() => {
+      navigation.goBack();
+    }, XP_FEEDBACK_DURATION_MS);
   };
 
   // Retour anticipé APRÈS tous les hooks ci-dessus (voir le commentaire sur
@@ -136,6 +200,8 @@ export default function LessonCourseScreen({ route, navigation }: LessonCourseSc
         <Pressable style={styles.button} onPress={handlePressContinue}>
           <Text style={styles.buttonLabel}>{isLastPage ? 'Terminer' : 'Compris'}</Text>
         </Pressable>
+
+        {xpFeedback && <Text style={styles.xpFeedbackText}>{xpFeedback}</Text>}
 
         <View style={styles.progressTrack}>
           <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
@@ -261,5 +327,14 @@ const styles = StyleSheet.create({
     fontSize: theme.text.size.lg,
     fontWeight: theme.text.weight.semibold,
     color: '#FFFFFF',
+  },
+  // Feedback XP discret : simple texte centré, pas de fond ni de carte — ce
+  // n'est qu'une confirmation brève avant la fermeture de l'écran (voir
+  // handleFinishLesson, XP_FEEDBACK_DURATION_MS).
+  xpFeedbackText: {
+    textAlign: 'center',
+    fontSize: theme.text.size.md,
+    fontWeight: theme.text.weight.bold,
+    color: theme.colors.achievementUnlocked,
   },
 });

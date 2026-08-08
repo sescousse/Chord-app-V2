@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -7,6 +7,9 @@ import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'rea
 import { theme } from '../theme';
 import { PianoChord } from '../components/PianoChord';
 import { SlidePanel } from '../components/SlidePanel';
+import { useProfile } from '../context/ProfileContext';
+import { useSucces } from '../context/SuccesContext';
+import { XP_EXERCICE, XP_FEEDBACK_DURATION_MS } from '../lib/xpRewards';
 import {
   bassAndClusterVoicing,
   buildExtendedChord,
@@ -121,7 +124,16 @@ function withSecondaryDominantOfV(degrees: string[], isVOfVAdded: boolean): stri
 // CET accord précis. Isolé dans son propre composant pour calculer
 // chordName/chordNotes avec de vraies déclarations plutôt que dans une
 // expression JSX (un ternaire ne permet pas de "const").
-type ExpandedChordPanelProps = {
+// EXPORTÉ (avec ses 2 complices plus bas, AccompanimentPanelContent et
+// VoicingPanelContent) : creation.tsx (écran "Crée ta progression") les
+// réutilise TELS QUELS dans son carrousel d'accords, plutôt que de dupliquer
+// enrichissement/voicing/accompagnement/renversements — voir son
+// commentaire "OUTILS RÉUTILISÉS" pour le détail de cette réutilisation.
+// Rien ne change ici dans leur fonctionnement pour ResultScreen : ce sont
+// des composants autonomes (tout ce dont ils dépendent leur arrive en
+// props, ou vient de constantes de CE module), les exporter ne fait
+// qu'élargir qui peut les importer.
+export type ExpandedChordPanelProps = {
   degree: string;
   scale: ScaleChoice;
   // Tonique de référence (ex: "C", "F#"), choisie via le panneau "Tonalité"
@@ -135,7 +147,7 @@ type ExpandedChordPanelProps = {
   onSelectLevel: (level: ExtensionLevel) => void;
 };
 
-function ExpandedChordPanel({ degree, scale, tonic, level, onSelectLevel }: ExpandedChordPanelProps) {
+export function ExpandedChordPanel({ degree, scale, tonic, level, onSelectLevel }: ExpandedChordPanelProps) {
   // STATE DU VOICING : vue alternative de CET accord — false = position
   // théorique (empilée en tierces, l'affichage historique), true = voicing
   // "basse + accord groupé" (voir bassAndClusterVoicing). Local à ce
@@ -312,7 +324,7 @@ const VOICING_OPTIONS: VoicingOption[] = [
   },
 ];
 
-type AccompanimentPanelContentProps = {
+export type AccompanimentPanelContentProps = {
   // Piloté par ResultScreen (isAccompanimentPanelOpen) : ce composant est
   // rendu comme "children" de SlidePanel, qui reste TOUJOURS monté (voir son
   // commentaire) — c'est cette prop, pas un montage/démontage, qui dit si le
@@ -343,7 +355,7 @@ type AccompanimentPanelContentProps = {
 // repasse à false (voir le "if (!isOpen) return" en tête d'effet), sous
 // peine de continuer à tourner EN ARRIÈRE-PLAN une fois le panneau glissé
 // hors champ, invisible mais toujours actif.
-function AccompanimentPanelContent({ isOpen }: AccompanimentPanelContentProps) {
+export function AccompanimentPanelContent({ isOpen }: AccompanimentPanelContentProps) {
   // Onglet actif : un INDEX dans ACCOMPANIMENTS plutôt qu'un id — plus
   // simple ici puisque cette table est un tableau fixe local, pas besoin
   // d'une recherche par id. 0 = "Arpège montant", le même accompagnement
@@ -488,7 +500,7 @@ function AccompanimentPanelContent({ isOpen }: AccompanimentPanelContentProps) {
   );
 }
 
-type VoicingPanelContentProps = {
+export type VoicingPanelContentProps = {
   // Voir le commentaire équivalent sur AccompanimentPanelContentProps :
   // piloté par ResultScreen, ce composant reste TOUJOURS monté (enfant de
   // SlidePanel). Ce contenu-ci n'a AUCUN minuteur (voir plus bas), donc
@@ -522,7 +534,7 @@ type VoicingPanelContentProps = {
 // N'est QUE le contenu : le glissement, la carte, le bouton fermer et le
 // défilement sont fournis par SlidePanel (voir son utilisation dans
 // ResultScreen).
-function VoicingPanelContent({ isOpen }: VoicingPanelContentProps) {
+export function VoicingPanelContent({ isOpen }: VoicingPanelContentProps) {
   // Voicing actuellement sélectionné : son "id" (voir VOICING_OPTIONS),
   // "Position fermée" au départ — la disposition de référence, la plus
   // simple, avant d'explorer les 2 autres.
@@ -927,6 +939,51 @@ export default function ResultScreen() {
   // progressions"), donc goBack() y ramène toujours directement.
   const navigation = useNavigation<ImproResultNavigation>();
 
+  const { addXp } = useProfile();
+  const { debloquerSucces } = useSucces();
+
+  // FEEDBACK XP — "+30 XP" affiché brièvement après avoir tapé "Terminer
+  // l'exercice" (voir handleFinishExercise plus bas), puis effacé tout seul
+  // après XP_FEEDBACK_DURATION_MS. Le ref garde le minuteur en cours pour
+  // pouvoir l'annuler proprement (double-tap rapide, ou démontage de l'écran
+  // avant la fin du délai) — même pattern que settleTimeoutRef dans
+  // CourseParcoursScreen.tsx.
+  const [xpFeedback, setXpFeedback] = useState<string | null>(null);
+  const xpFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (xpFeedbackTimeoutRef.current) {
+        clearTimeout(xpFeedbackTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // DÉCLENCHEUR XP CHOISI — ces exercices d'impro sont surtout exploratoires
+  // (pas de fin naturelle : accompagnement/voicing/enrichissement peuvent se
+  // consulter dans n'importe quel ordre, indéfiniment) : il n'existait donc
+  // aucun moment "terminé" déjà identifiable dans le code. Choix retenu :
+  // un bouton "Terminer l'exercice" explicite, ajouté en bas de cet écran de
+  // résultat (voir plus bas dans le JSX) — l'utilisateur décide lui-même
+  // quand il considère avoir fini d'explorer cette progression.
+  //
+  // TODO: éviter de re-donner l'XP pour un contenu déjà complété (nécessite
+  // la progression) — pour cette première version, l'XP est donné à CHAQUE
+  // tap, même répété (voir la consigne).
+  const handleFinishExercise = async () => {
+    const { error } = await addXp(XP_EXERCICE);
+    if (error) {
+      Alert.alert('Erreur', error);
+      return;
+    }
+
+    setXpFeedback(`+${XP_EXERCICE} XP`);
+    if (xpFeedbackTimeoutRef.current) {
+      clearTimeout(xpFeedbackTimeoutRef.current);
+    }
+    xpFeedbackTimeoutRef.current = setTimeout(() => setXpFeedback(null), XP_FEEDBACK_DURATION_MS);
+  };
+
   const emotionLabel = MOODS.find((mood) => mood.value === emotion)?.label ?? emotion;
 
   // Filtrage par ÉMOTION uniquement, comme avant : le style n'est pas encore
@@ -936,6 +993,23 @@ export default function ResultScreen() {
   const filteredProgressions = PROGRESSIONS.filter(
     (progression) => progression.emotion === emotion
   );
+
+  // SUCCÈS "Improvisateur novice" — DÉCLENCHEUR CHOISI : l'arrivée sur cet
+  // écran de résultat avec au moins UNE progression réellement trouvée pour
+  // l'émotion/le style choisis sur ImproChoicesScreen (filteredProgressions
+  // non vide). C'est le moment où l'impro libre a concrètement "généré une
+  // progression" pour l'utilisateur — pas le tap sur "Voir les progressions"
+  // côté ImproChoicesScreen, qui ne sait pas encore si la recherche
+  // aboutira. Effet au MONTAGE uniquement (tableau de dépendances vide) :
+  // emotion/style sont des paramètres de route FIXES pour la durée de vie de
+  // cet écran (ImproChoicesScreen crée une nouvelle instance à chaque
+  // "Voir les progressions"), pas la peine de revérifier à chaque re-render.
+  useEffect(() => {
+    if (filteredProgressions.length > 0) {
+      void debloquerSucces('improvisateur_novice');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // STATE DU PANNEAU "DÉCOUVRIR UN ACCOMPAGNEMENT" : ouvert/fermé,
   // indépendant de tout accord sélectionné. Passé en prop à la fois à
@@ -1280,6 +1354,16 @@ export default function ResultScreen() {
           <Text style={styles.actionButtonLabel}>Enrichir la progression</Text>
         </Pressable>
       </View>
+
+      {/* "Terminer l'exercice" — voir le commentaire sur handleFinishExercise
+          plus haut pour pourquoi ce bouton (et pas un point de complétion
+          déjà existant) a été choisi comme déclencheur d'XP. Séparé des 3
+          actions "découvrir..." ci-dessus (secondaires, exploratoires) :
+          celui-ci est LA seule action qui conclut vraiment l'exercice. */}
+      <Pressable style={styles.finishButton} onPress={handleFinishExercise}>
+        <Text style={styles.finishButtonLabel}>Terminer l'exercice</Text>
+      </Pressable>
+      {xpFeedback && <Text style={styles.xpFeedbackText}>{xpFeedback}</Text>}
       </ScrollView>
 
       {/* Les 3 panneaux (voir SlidePanel.tsx) : TOUJOURS rendus (pas de
@@ -1541,6 +1625,34 @@ const styles = StyleSheet.create({
     fontSize: theme.text.size.md,
     fontWeight: theme.text.weight.semibold,
     color: theme.colors.text,
+  },
+  // "Terminer l'exercice" : plein (pas juste un contour comme actionButton
+  // ci-dessus) pour se démarquer comme LA conclusion de l'écran, pas une
+  // simple option à explorer.
+  finishButton: {
+    width: '100%',
+    backgroundColor: theme.colors.primary,
+    borderRadius: theme.radius.lg,
+    paddingVertical: theme.spacing.md,
+    alignItems: 'center',
+  },
+  // Pas de token "texte sur fond coloré" dans le thème (theme.colors.text
+  // est pensé pour du texte sur le fond neutre de l'app) : blanc en dur ici,
+  // comme déjà fait ailleurs dans l'app pour ce même besoin (ex:
+  // LessonCourseScreen, ProfileScreen).
+  finishButtonLabel: {
+    fontSize: theme.text.size.lg,
+    fontWeight: theme.text.weight.semibold,
+    color: '#FFFFFF',
+  },
+  // Feedback XP discret : simple texte centré sous le bouton, pas de fond ni
+  // de carte — ce n'est qu'une confirmation brève, pas un élément durable de
+  // l'écran (voir XP_FEEDBACK_DURATION_MS, qui l'efface tout seul).
+  xpFeedbackText: {
+    textAlign: 'center',
+    fontSize: theme.text.size.md,
+    fontWeight: theme.text.weight.bold,
+    color: theme.colors.achievementUnlocked,
   },
   // Carte d'UNE option de dominante secondaire (EnrichmentPanelContent) : même fond
   // que expandedPanel (backGroundExercice), pour la détacher du fond de la

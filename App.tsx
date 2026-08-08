@@ -7,6 +7,8 @@ import RootNavigator from './src/navigation/RootNavigator';
 import AuthStack from './src/navigation/AuthStack';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { ProfileProvider } from './src/context/ProfileContext';
+import { SuccesProvider } from './src/context/SuccesContext';
+import { SuccesCelebrationOverlay } from './src/components/SuccesCelebrationOverlay';
 import { theme } from './src/theme';
 
 // AIGUILLAGE CONDITIONNEL — enveloppe la navigation EXISTANTE (RootNavigator,
@@ -48,10 +50,21 @@ export default function App() {
             useProfile() disponible à tous les écrans de la navigation
             (HomeScreen, ProfileScreen...), comme useAuth() déjà. */}
         <ProfileProvider>
-          <NavigationContainer>
-            <RootNavigation />
-            <StatusBar style="auto" />
-          </NavigationContainer>
+          {/* SuccesProvider SOUS ProfileProvider (dépend de useProfile(),
+              pour addXp — voir SuccesContext.tsx) : rend useSucces()
+              disponible à tous les écrans, comme useAuth()/useProfile()
+              déjà. */}
+          <SuccesProvider>
+            <NavigationContainer>
+              <RootNavigation />
+              <StatusBar style="auto" />
+            </NavigationContainer>
+            {/* Frère de NavigationContainer, APRÈS lui : se peint par-dessus
+                TOUTE la navigation (voir le commentaire détaillé dans
+                SuccesCelebrationOverlay.tsx) — se rend invisible tout seul
+                tant qu'aucun succès n'est en cours de célébration. */}
+            <SuccesCelebrationOverlay />
+          </SuccesProvider>
         </ProfileProvider>
       </AuthProvider>
     </SafeAreaProvider>

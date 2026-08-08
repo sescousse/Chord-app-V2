@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
+import { calculerNouvelleStreak, formatDateLocale } from '../lib/streak';
 
 // Forme d'une ligne de la table Supabase "profils", telle que lue par
 // l'app — un champ par colonne, mêmes noms que le schéma SQL (pas de
@@ -22,6 +23,14 @@ export interface Profil {
   niveau: number;
   abonnement: string | null;
   bio: string | null;
+  // Dernière date ("YYYY-MM-DD", sans heure) où l'activité du jour a été
+  // validée — null tant qu'aucune activité n'a encore été enregistrée. Voir
+  // validerActiviteDuJour() plus bas, et src/lib/streak.ts pour le calcul.
+  date_derniere_activite: string | null;
+  // Nombre de "gels de série" disponibles — colonne RÉSERVÉE pour une future
+  // fonctionnalité (protéger la streak contre un jour sauté), pas encore
+  // utilisée par validerActiviteDuJour (voir le TODO dans streak.ts).
+  gels_serie: number;
 }
 
 // Les 3 états de LECTURE que tout écran consommateur doit gérer : tant que
@@ -99,7 +108,12 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
   // crée toujours une pour chaque utilisateur) — si ce n'était pas le cas,
   // .single() fait échouer la requête avec une vraie erreur plutôt que de
   // renvoyer silencieusement un tableau vide ou à plusieurs entrées.
-  const loadProfile = async (userId: string) => {
+  // Renvoie le profil chargé (ou null en cas d'échec/démontage) : le
+  // useEffect plus bas s'en sert pour enchaîner validerActiviteDuJour() sur
+  // la valeur FRAÎCHEMENT lue, plutôt que de relire "profil" depuis le state
+  // React juste après ce même appel — setProfil() ci-dessous ne serait pas
+  // encore reflété dans le state à ce moment-là (mise à jour asynchrone).
+  const loadProfile = async (userId: string): Promise<Profil | null> => {
     setIsLoading(true);
     setError(null);
 
@@ -109,25 +123,81 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
       .eq('id', userId)
       .single();
 
-    if (!isMountedRef.current) return;
+    if (!isMountedRef.current) return null;
 
     // 3 ÉTATS, jamais mélangés : une erreur vide "profil" (pas de données à
     // moitié fiables affichées), un succès vide "error".
     if (selectError) {
       setError(selectError.message);
       setProfil(null);
-    } else {
-      // Cast explicite vers Profil : sans schéma "Database" généré à partir
-      // du projet Supabase (hors périmètre de cette étape), le client ne
-      // connaît pas la forme exacte de la table "profils" et typerait
-      // "data" en interne de façon lâche — ce cast affirme qu'elle
-      // correspond à l'interface Profil ci-dessus (vérifiée à la main
-      // contre les colonnes réelles de la table), sans jamais introduire de
-      // "any" dans ce fichier.
-      setProfil(data as Profil);
-      setError(null);
+      setIsLoading(false);
+      return null;
     }
+
+    // Cast explicite vers Profil : sans schéma "Database" généré à partir
+    // du projet Supabase (hors périmètre de cette étape), le client ne
+    // connaît pas la forme exacte de la table "profils" et typerait
+    // "data" en interne de façon lâche — ce cast affirme qu'elle
+    // correspond à l'interface Profil ci-dessus (vérifiée à la main
+    // contre les colonnes réelles de la table), sans jamais introduire de
+    // "any" dans ce fichier.
+    const loadedProfil = data as Profil;
+    setProfil(loadedProfil);
+    setError(null);
     setIsLoading(false);
+    return loadedProfil;
+  };
+
+  // VALIDATION DE LA STREAK DU JOUR — voir src/lib/streak.ts pour le calcul
+  // pur (3 cas : déjà validé / jour consécutif / jour sauté). Ici, on se
+  // contente : de lire date_derniere_activite + streak_actuelle du profil
+  // déjà chargé, d'appliquer le calcul, et d'écrire le résultat SEULEMENT
+  // si quelque chose a changé (le cas "déjà validé aujourd'hui" ne déclenche
+  // aucun UPDATE). PAS exposée dans ProfileContextValue : ce n'est pas une
+  // action que d'autres écrans doivent pouvoir déclencher à la main, elle
+  // n'est appelée qu'automatiquement au chargement (voir le useEffect plus
+  // bas) — une fois par connexion/lancement, jamais à chaque re-render.
+  const validerActiviteDuJour = async (profilCharge: Profil, userId: string): Promise<void> => {
+    const resultat = calculerNouvelleStreak(
+      profilCharge.date_derniere_activite,
+      profilCharge.streak_actuelle,
+      new Date(),
+    );
+
+    // Jour déjà validé : "ne rien changer" (règle du jeu) — aucun appel
+    // Supabase, on garde le profil déjà en mémoire tel quel.
+    if (resultat.dejaValideAujourdhui) {
+      return;
+    }
+
+    // meilleure_streak ne peut que MONTER (ou rester égale) : jamais réduite
+    // même quand la streak actuelle repart à 1 après un jour sauté — c'est
+    // un record, pas la valeur courante.
+    const nouvelleMeilleureStreak = Math.max(profilCharge.meilleure_streak, resultat.nouvelleStreak);
+
+    const { data, error: updateError } = await supabase
+      .from('profils')
+      .update({
+        date_derniere_activite: formatDateLocale(new Date()),
+        streak_actuelle: resultat.nouvelleStreak,
+        meilleure_streak: nouvelleMeilleureStreak,
+      })
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (!isMountedRef.current) return;
+
+    // Échec silencieux : la streak est une donnée secondaire (comme les
+    // relations de SocialScreen.tsx) — un souci réseau ici ne doit pas
+    // empêcher le reste de l'app de fonctionner ; le profil déjà chargé
+    // reste affiché tel quel, la streak du jour sera revalidée à la
+    // prochaine connexion.
+    if (updateError) {
+      return;
+    }
+
+    setProfil(data as Profil);
   };
 
   // Se relance à chaque changement de RÉFÉRENCE de "user" — c'est-à-dire à
@@ -146,11 +216,22 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
       return;
     }
 
-    loadProfile(user.id);
-    // loadProfile est stable en pratique (ne dépend que de setState et du
-    // client supabase, jamais recréée de façon significative) : inutile de
-    // la lister en dépendance, seul un changement de "user" doit relancer
-    // ce chargement.
+    // Enchaîne la validation de la streak du jour SUR LA VALEUR RENVOYÉE par
+    // loadProfile (pas sur le state "profil", pas encore à jour à ce stade
+    // — voir le commentaire sur loadProfile plus haut). Ce useEffect ne se
+    // relance qu'à un vrai changement de "user" (connexion/déconnexion) :
+    // la validation se déclenche donc bien "une fois par connexion/
+    // lancement", jamais à chaque re-render ni à chaque refreshProfile()
+    // manuel (qui, lui, appelle loadProfile directement, sans repasser par
+    // ici — voir refreshProfile plus bas).
+    loadProfile(user.id).then((loadedProfil) => {
+      if (!isMountedRef.current || !loadedProfil) return;
+      validerActiviteDuJour(loadedProfil, user.id);
+    });
+    // loadProfile/validerActiviteDuJour sont stables en pratique (ne
+    // dépendent que de setState et du client supabase, jamais recréées de
+    // façon significative) : inutile de les lister en dépendance, seul un
+    // changement de "user" doit relancer ce chargement.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 

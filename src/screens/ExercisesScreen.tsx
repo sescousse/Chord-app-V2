@@ -1,6 +1,7 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { ExercisesStackParamList } from '../navigation/ExercisesStack';
 import { theme } from '../theme';
@@ -43,10 +44,18 @@ const EXERCISES: Exercise[] = [
 export default function ExercisesScreen() {
   // Hook de navigation typé sur la pile Exercices (pas de "any").
   const navigation = useNavigation<ExercisesNavigation>();
+  // Le header natif de cet écran est masqué (voir ExercisesStack.tsx,
+  // headerShown: false sur "ExercisesList") : c'est donc CET écran qui doit
+  // désormais gérer lui-même la safe area en haut (paddingTop = insets.top +
+  // spacing), sinon le contenu collerait à la zone système (encoche/barre de
+  // statut) — même principe que HomeScreen.tsx/LessonCourseScreen.
+  const insets = useSafeAreaInsets();
 
   return (
-    <View style={styles.container}>
-      <Text style={theme.text.title}>Exercices</Text>
+    <View style={[styles.container, { paddingTop: insets.top + theme.spacing.lg }]}>
+      {/* Titre "Exercices" retiré (demande explicite) : c'était un texte
+          affiché dans le contenu de la page, pas le header (déjà masqué
+          ci-dessus). */}
 
       <View style={styles.list}>
         {/* Un Pressable par exercice, généré à partir du tableau EXERCISES. */}

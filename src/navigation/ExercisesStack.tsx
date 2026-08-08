@@ -43,11 +43,13 @@ export default function ExercisesStack() {
         headerTintColor: colors.text,
       }}
     >
-      <Stack.Screen
-        name="ExercisesList"
-        component={ExercisesScreen}
-        options={{ title: 'Exercices' }}
-      />
+      {/* headerShown: false : "Exercices" était un header de navigation natif
+          (title ci-dessous, maintenant retiré) — demande explicite de retirer
+          cette barre de titre. Scopé à CET écran seulement (pas au Navigator
+          entier via screenOptions) : les écrans suivants du flux (Improvisation,
+          Émotion & style, Résultat, Crée ta progression) gardent leur header
+          natif normal, dont le bouton retour est nécessaire à leur navigation. */}
+      <Stack.Screen name="ExercisesList" component={ExercisesScreen} options={{ headerShown: false }} />
       <Stack.Screen
         name="ImproMenu"
         component={ImproMenuScreen}

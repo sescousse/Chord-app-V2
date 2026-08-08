@@ -77,6 +77,15 @@ export const colors = {
   // shadowColor ailleurs dans l'app, ce n'est pas vraiment un choix de
   // TEINTE de marque mais une convention d'interface (rouge = erreur).
   danger: '#DC2626',
+  // Fond du badge "Amis" (relation de suivi RÉCIPROQUE, page Social) : rose
+  // chaleureux dédié — distinct de "achievementUnlocked" (or, sémantique
+  // "succès débloqué") bien que visuellement voisin dans la famille chaude :
+  // ce sont 2 concepts différents (amitié vs récompense), un token séparé
+  // évite qu'un futur changement de couleur des succès n'affecte aussi ce
+  // badge par accident. Le badge "Suivi" (relation à SENS UNIQUE), lui, ne
+  // réutilise aucun nouveau token : contour + texte "primary" (déjà le sens
+  // "actif/en cours" ailleurs dans l'app) sur fond "surface" suffisent.
+  friendBadge: '#DB2777',
 };
 
 // Style de la barre de navigation du bas (tab bar). Un ton encore plus
