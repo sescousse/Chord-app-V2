@@ -3,22 +3,28 @@ import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import RootNavigator from './src/navigation/RootNavigator';
+import AppStack from './src/navigation/AppStack';
 import AuthStack from './src/navigation/AuthStack';
+import { navigationRef } from './src/navigation/navigationRef';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { ProfileProvider } from './src/context/ProfileContext';
 import { SuccesProvider } from './src/context/SuccesContext';
+import { QuetesProvider } from './src/context/QuetesContext';
+import { SettingsDrawerProvider } from './src/context/SettingsDrawerContext';
 import { SuccesCelebrationOverlay } from './src/components/SuccesCelebrationOverlay';
+import { SettingsDrawer } from './src/components/SettingsDrawer';
 import { theme } from './src/theme';
 
-// AIGUILLAGE CONDITIONNEL — enveloppe la navigation EXISTANTE (RootNavigator,
-// inchangé) plutôt que de la réécrire : ce composant choisit juste LEQUEL
-// des deux navigateurs racine afficher, selon l'état d'auth lu via useAuth()
-// (voir AuthContext.tsx) :
+// AIGUILLAGE CONDITIONNEL — enveloppe la navigation EXISTANTE (AppStack,
+// inchangée dans son principe) plutôt que de la réécrire : ce composant
+// choisit juste LEQUEL des deux navigateurs racine afficher, selon l'état
+// d'auth lu via useAuth() (voir AuthContext.tsx) :
 // - isLoading (vérification de session en cours, au tout premier lancement
 //   de l'app) → spinner plein écran, pour éviter un flash de l'écran de
 //   connexion avant même de savoir si une session existait déjà.
-// - user connu → RootNavigator (l'app normale, onglets Accueil/Exercices...).
+// - user connu → AppStack (les onglets Accueil/Exercices/Profil, INCHANGÉS,
+//   PLUS les écrans du menu réglages — voir AppStack.tsx, qui remplace ici
+//   RootNavigator direct depuis l'ajout du drawer réglages).
 // - user === null → AuthStack (SignIn/SignUp).
 // Aucune navigation manuelle nécessaire pour basculer de l'un à l'autre :
 // AuthContext met "user" à jour tout seul dès qu'une connexion/inscription/
@@ -35,7 +41,7 @@ function RootNavigation() {
     );
   }
 
-  return user ? <RootNavigator /> : <AuthStack />;
+  return user ? <AppStack /> : <AuthStack />;
 }
 
 export default function App() {
@@ -55,15 +61,36 @@ export default function App() {
               disponible à tous les écrans, comme useAuth()/useProfile()
               déjà. */}
           <SuccesProvider>
-            <NavigationContainer>
-              <RootNavigation />
-              <StatusBar style="auto" />
-            </NavigationContainer>
-            {/* Frère de NavigationContainer, APRÈS lui : se peint par-dessus
-                TOUTE la navigation (voir le commentaire détaillé dans
-                SuccesCelebrationOverlay.tsx) — se rend invisible tout seul
-                tant qu'aucun succès n'est en cours de célébration. */}
-            <SuccesCelebrationOverlay />
+            {/* QuetesProvider SOUS ProfileProvider (dépend de useProfile(),
+                pour addXp — récompense d'une quête complétée) : rend
+                useQuetes() disponible à tous les écrans, comme useSucces()
+                déjà. Doit être un ENFANT de ProfileProvider, jamais l'inverse
+                (voir le commentaire "POURQUOI ICI" dans QuetesContext.tsx) :
+                c'est cette contrainte d'arbre qui empêche addXp lui-même
+                d'appeler avancerQuete, et donc la boucle de farming XP que ça
+                créerait. */}
+            <QuetesProvider>
+              {/* SettingsDrawerProvider AU-DESSUS de NavigationContainer : le
+                  menu réglages (SettingsDrawer, sibling ci-dessous) et le
+                  bouton qui l'ouvre (engrenage de ProfileScreen, profondément
+                  imbriqué DANS la navigation) doivent tous les deux pouvoir
+                  lire/écrire ce même état — voir SettingsDrawerContext.tsx. */}
+              <SettingsDrawerProvider>
+                {/* ref={navigationRef} : permet à SettingsDrawer.tsx de
+                    naviguer vers un écran placeholder alors qu'il est rendu EN
+                    DEHORS de cet arbre de navigation (voir navigationRef.ts). */}
+                <NavigationContainer ref={navigationRef}>
+                  <RootNavigation />
+                  <StatusBar style="auto" />
+                </NavigationContainer>
+                {/* Frères de NavigationContainer, APRÈS lui : se peignent
+                    par-dessus TOUTE la navigation (voir le commentaire détaillé
+                    dans SuccesCelebrationOverlay.tsx) — chacun se rend
+                    invisible tout seul tant qu'il n'est pas actif. */}
+                <SuccesCelebrationOverlay />
+                <SettingsDrawer />
+              </SettingsDrawerProvider>
+            </QuetesProvider>
           </SuccesProvider>
         </ProfileProvider>
       </AuthProvider>

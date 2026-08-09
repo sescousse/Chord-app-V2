@@ -13,6 +13,7 @@ import { SlidePanel } from '../components/SlidePanel';
 import { ExpandedChordPanel, AccompanimentPanelContent, VoicingPanelContent } from './improResult';
 import { useProfile } from '../context/ProfileContext';
 import { useSucces } from '../context/SuccesContext';
+import { useQuetes } from '../context/QuetesContext';
 import { XP_PROGRESSION, XP_FEEDBACK_DURATION_MS } from '../lib/xpRewards';
 
 // Palette des degrés proposés. Modifie ce tableau pour ajouter/retirer des boutons.
@@ -119,6 +120,7 @@ export default function CreationScreen() {
   // --- XP : bouton "Enregistrer" ----------------------------------------
   const { addXp } = useProfile();
   const { debloquerSucces } = useSucces();
+  const { avancerQuete } = useQuetes();
   const [xpFeedback, setXpFeedback] = useState<string | null>(null);
   const xpFeedbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -149,6 +151,14 @@ export default function CreationScreen() {
     // si "compositeur_ne" est déjà débloqué (voir SuccesContext.tsx), donc
     // sûr à appeler à CHAQUE "Enregistrer", pas seulement le tout premier.
     void debloquerSucces('compositeur_ne');
+
+    // QUÊTES DU JOUR — même principe que LessonCourseScreen.handleFinishLesson
+    // (voir son commentaire) : le gain d'XP fait avancer 'xp_jour' du montant
+    // réellement gagné, ET "enregistrer une progression" fait avancer
+    // 'progressions_jour' séparément. "void" : ne bloque jamais le feedback
+    // XP ci-dessous.
+    void avancerQuete('xp_jour', XP_PROGRESSION);
+    void avancerQuete('progressions_jour', 1);
 
     setXpFeedback(`+${XP_PROGRESSION} XP`);
     if (xpFeedbackTimeoutRef.current) {

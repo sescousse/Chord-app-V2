@@ -1,11 +1,20 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { theme } from '../theme';
 import CourseParcoursScreen from './CourseParcoursScreen';
 import LibraryScreen from './LibraryScreen';
 import { useProfile } from '../context/ProfileContext';
+import { GelSerieModal, GEL_SERIE_ICON } from '../components/GelSerieModal';
+import type { HomeStackParamList } from '../navigation/HomeStack';
+
+// Type du hook de navigation, restreint à la pile Accueil — même convention
+// que CourseParcoursScreen.tsx (ce composant est, comme lui, monté DANS
+// "HomeMain" et hérite donc du contexte de navigation de CETTE pile).
+type HomeScreenNavigationProp = NativeStackNavigationProp<HomeStackParamList, 'HomeMain'>;
 
 // Icône flamme : @expo/vector-icons n'est pas installé dans ce projet
 // (vérifié : absent de package.json et node_modules) — repli emoji, même
@@ -13,6 +22,10 @@ import { useProfile } from '../context/ProfileContext';
 // cœurs de LessonCourseScreen, les icônes des boutons d'action de
 // improResult.tsx).
 const STREAK_ICON = '🔥';
+
+// TODO: illustration jeton clé de sol — icône générique de pièce en
+// attendant un vrai visuel dédié à la monnaie du jeu.
+const JETON_ICON = '🪙';
 
 // Statistiques PAS ENCORE branchées à une vraie source (xp et streak, elles,
 // viennent maintenant du profil Supabase — voir useProfile() dans le
@@ -59,11 +72,18 @@ const BANNER_TABS: BannerTab[] = [
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<HomeScreenNavigationProp>();
 
   // Onglet actif de la bannière. "competences" par défaut : c'est le contenu
   // d'accueil d'origine (streak + stats + TODO objectifs/arbre), inchangé
   // ci-dessous.
   const [activeTab, setActiveTab] = useState<TabKey>('competences');
+
+  // Ouverture de la modale "Gel de série" (voir GelSerieModal.tsx), déclenchée
+  // par l'icône gel du header plus bas — state LOCAL (pas un Context comme
+  // SettingsDrawer) : cette modale n'est ouverte que depuis CET écran, pas
+  // besoin de la rendre accessible ailleurs dans l'app.
+  const [isGelModalOpen, setIsGelModalOpen] = useState(false);
 
   // 3 états exposés par ProfileContext (voir ProfileContext.tsx) : tant que
   // isProfileLoading est vrai, "profil" n'est pas encore fiable ; ensuite,
@@ -76,6 +96,12 @@ export default function HomeScreen() {
   // pas de source commune à extraire pour 2 lignes de calcul).
   const streakDisplay = isProfileLoading ? '…' : profil ? String(profil.streak_actuelle) : '—';
   const totalXpDisplay = isProfileLoading ? '…' : profil ? profil.xp.toLocaleString('fr-FR') : '—';
+  // Solde de jetons RÉEL (profil.jetons, table "profils") — même repli "…"/
+  // "—" que streak/xp ci-dessus, remplace l'ancienne constante JETONS_EN_DUR.
+  const jetonsDisplay = isProfileLoading ? '…' : profil ? String(profil.jetons) : '—';
+  // Nombre de gels de série RÉEL (profil.gels_serie, table "profils") — même
+  // repli "…"/"—" que le reste de cette bande.
+  const gelsSerieDisplay = isProfileLoading ? '…' : profil ? String(profil.gels_serie) : '—';
 
   // Config d'AFFICHAGE de chaque statistique (icône + libellé + valeur déjà
   // mise en forme) — xp/streak dépendent du profil chargé ci-dessus, donc
@@ -95,17 +121,43 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Barre de titre "Accueil" retirée (demande explicite) : ce n'était
-          PAS un header de navigation (HomeStack a déjà headerShown: false
-          pour "HomeMain") mais un bloc de titre affiché DANS le contenu de
-          la page — supprimé ici. C'est maintenant la BANNIÈRE ci-dessous qui
-          devient le tout premier élément en haut de l'écran, elle reprend
-          donc la responsabilité de la safe area (paddingTop = insets.top +
-          spacing, même principe que l'ex-en-tête ou que la topBar de
-          LessonCourseScreen) pour que son contenu ne colle pas à la zone
-          système (encoche/barre de statut). TODO: les futurs éléments de
-          droite prévus ici (monnaie, clés, réglages) devront trouver une
-          nouvelle place puisque ce bloc n'existe plus. */}
+      {/* BANDE STREAK/JETONS — remplace l'ancienne barre de titre "Accueil"
+          (retirée, demande explicite d'une tâche précédente) : PAS de texte
+          de titre ici, 3 statistiques cette fois : streak | gels | jetons
+          (comme demandé), réparties à parts égales sur toute la largeur
+          (voir statsStripItem, "flex: 1" sur chacune). Devient le tout
+          premier élément en haut de l'écran, donc reprend la responsabilité
+          de la safe area (paddingTop = insets.top + spacing, même principe
+          que la topBar de LessonCourseScreen) — la bannière juste en dessous
+          n'en a donc plus besoin. */}
+      <View style={[styles.statsStrip, { paddingTop: insets.top + theme.spacing.md }]}>
+        {/* GAUCHE — streak RÉELLE (profil.streak_actuelle via ProfileContext,
+            voir streakDisplay plus haut : "…" pendant le chargement, "—" en
+            cas d'erreur, jamais un chiffre inventé). */}
+        <View style={styles.statsStripItem}>
+          <Text style={styles.statsStripIcon}>{STREAK_ICON}</Text>
+          <Text style={styles.statsStripValue}>{streakDisplay}</Text>
+        </View>
+
+        {/* MILIEU — gels de série RÉELS (profil.gels_serie via ProfileContext,
+            voir gelsSerieDisplay plus haut). Cliquable : ouvre la modale
+            d'achat (GelSerieModal.tsx) — affichage + achat seulement à cette
+            étape, la CONSOMMATION automatique dans la logique de streak est
+            une étape séparée à venir. */}
+        <Pressable style={styles.statsStripItem} onPress={() => setIsGelModalOpen(true)}>
+          <Text style={styles.statsStripIcon}>{GEL_SERIE_ICON}</Text>
+          <Text style={styles.statsStripValue}>{gelsSerieDisplay}</Text>
+        </Pressable>
+
+        {/* DROITE — solde de jetons RÉEL (profil.jetons via ProfileContext,
+            voir jetonsDisplay plus haut). Cliquable : ouvre la boutique de
+            jetons (BoutiqueJetonsScreen, placeholder "Bientôt disponible"
+            pour l'instant — voir HomeStack.tsx pour cette route). */}
+        <Pressable style={styles.statsStripItem} onPress={() => navigation.navigate('BoutiqueJetons')}>
+          <Text style={styles.statsStripIcon}>{JETON_ICON}</Text>
+          <Text style={styles.statsStripValue}>{jetonsDisplay}</Text>
+        </Pressable>
+      </View>
 
       {/* BANNIÈRE — rangée de 3 onglets cliquables, l'onglet actif souligné
           avec l'accent du thème (theme.colors.primary, déjà la couleur
@@ -114,8 +166,9 @@ export default function HomeScreen() {
           nouveau token nécessaire : composée à partir de tokens existants
           (surface/border/primary/textMuted), comme d'autres styles "sans
           équivalent direct" ailleurs dans l'app (ex: le bouton de
-          LessonCourseScreen). */}
-      <View style={[styles.banner, { paddingTop: insets.top + theme.spacing.md }]}>
+          LessonCourseScreen). Ne porte plus la safe area (voir la bande
+          streak/jetons ci-dessus, qui l'a prise en charge). */}
+      <View style={styles.banner}>
         {BANNER_TABS.map((tab) => {
           const isActive = tab.key === activeTab;
           return (
@@ -188,6 +241,13 @@ export default function HomeScreen() {
           </View>
         </ScrollView>
       )}
+
+      {/* Modale d'achat d'un gel de série — voir GelSerieModal.tsx. Rendue
+          en DERNIER ici (paint par-dessus le reste de l'écran, même
+          convention que SuccesCelebrationOverlay/SettingsDrawer) mais state
+          LOCAL à cet écran (pas de Context global) : elle n'est ouverte que
+          depuis CETTE page, pas besoin de la rendre accessible ailleurs. */}
+      <GelSerieModal isOpen={isGelModalOpen} onClose={() => setIsGelModalOpen(false)} />
     </View>
   );
 }
@@ -198,6 +258,42 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: theme.colors.background,
+  },
+  // Même famille visuelle que la bannière juste en dessous (surface + bordure
+  // basse) : les 2 se lisent comme un seul bloc de "chrome du haut" empilé,
+  // comme l'ex-en-tête + bannière avant leur fusion.
+  statsStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: theme.colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+    paddingHorizontal: theme.spacing.lg,
+    paddingBottom: theme.spacing.md,
+  },
+  // "flex: 1" sur CHAQUE item (pas de largeur fixe, pas de
+  // justifyContent: 'space-between' sur le conteneur) : les items se
+  // partagent TOUTE la largeur disponible à parts égales, quel que soit leur
+  // nombre — 2 items prennent chacun 50%, 3 en prendraient 33% chacun sans
+  // rien à changer ici. "justifyContent: 'center'" centre le contenu
+  // (icône+valeur) À L'INTÉRIEUR de la part de CET item, au lieu de le
+  // coller à un bord (streak collée à gauche, jetons collés à droite, comme
+  // avant) — le rendu reste donc équilibré même si un item est ajouté ou
+  // retiré.
+  statsStripItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.spacing.xs,
+  },
+  statsStripIcon: {
+    fontSize: theme.text.size.lg,
+  },
+  statsStripValue: {
+    fontSize: theme.text.size.lg,
+    fontWeight: theme.text.weight.bold,
+    color: theme.colors.text,
   },
   banner: {
     flexDirection: 'row',

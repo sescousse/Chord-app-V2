@@ -20,6 +20,29 @@
 // limite de sons simultanés du système : plus aucun son ne sort, jusqu'à
 // relancer l'app. Voir le POOL DE VOIX plus bas, qui élimine structurellement
 // ce risque (plus aucun createAudioPlayer() après le démarrage).
+//
+// DEUX AUTRES CORRECTIFS ICI :
+// - COUPURE DU SON PRÉCÉDENT (voir stopTout) : jouerNote()/jouerAccord()
+//   coupent maintenant systématiquement tout ce qui sonne encore avant de
+//   jouer quoi que ce soit de nouveau, pour ne plus jamais superposer 2
+//   accords/notes joués trop vite l'un après l'autre.
+// - VRAIE SIMULTANÉITÉ (voir preparerVoixPourNote/declencherVoix) :
+//   jouerAccord() prépare maintenant TOUTES les notes de l'accord (voix
+//   réservée, sample chargé, pitch/rate réglés) AVANT d'en déclencher UNE
+//   SEULE — sans cette séparation, une note dont le sample était déjà en
+//   cache partait presque instantanément pendant qu'une autre, dont le
+//   sample restait à charger, ne démarrait que plus tard : l'accord
+//   s'égrenait au lieu de partir en bloc.
+// - PRÉCHARGEMENT DÉPLACÉ (voir prechargerPiano) : n'est PLUS déclenché au
+//   démarrage de l'app (ça la ralentissait inutilement pour des écrans qui
+//   n'utilisent jamais le piano) — c'est maintenant l'écran d'entrée de
+//   l'exercice d'improvisation (ImproIntroScreen) qui l'appelle À SON
+//   MONTAGE. jouerNote()/jouerAccord() continuent malgré tout d'appeler
+//   prechargerPiano() en interne avant de jouer quoi que ce soit : si le
+//   piano est utilisé sans être passé par cet écran (ou si l'appel explicite
+//   n'a pas encore fini), le chargement se fait alors à la volée, en secours
+//   — jamais d'erreur "pas prêt", juste une latence au pire légèrement plus
+//   grande pour cette première note-là.
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer, type AudioStatus } from 'expo-audio';
 import { Note } from 'tonal';
 
@@ -139,7 +162,7 @@ function calculerCorrespondanceSample(note: string): CorrespondanceSample {
 }
 
 // --- CONFIGURATION AUDIO ---------------------------------------------------
-// setAudioModeAsync (appelée UNE SEULE FOIS, voir preparerPiano) :
+// setAudioModeAsync (appelée UNE SEULE FOIS, voir prechargerPiano) :
 // - playsInSilentMode: true — sans ça, sur iOS, le loquet "silencieux" du
 //   téléphone couperait TOUT son joué par l'app, y compris les notes de
 //   piano déclenchées volontairement par l'utilisateur (ce n'est pas une
@@ -159,7 +182,7 @@ async function configurerAudio(): Promise<void> {
 }
 
 // --- POOL DE VOIX (polyphonie bornée) --------------------------------------
-// VOICE_COUNT players créés UNE SEULE FOIS au démarrage (preparerPiano) et
+// VOICE_COUNT players créés UNE SEULE FOIS (voir prechargerPiano) et
 // RECYCLÉS pour toute la durée de vie de l'app : jamais de createAudioPlayer()
 // supplémentaire après ça. C'est ce qui élimine structurellement la fuite
 // décrite en haut de fichier — le nombre de players natifs reste borné à
@@ -177,16 +200,17 @@ const VOICE_COUNT = 16;
 type Voice = {
   player: AudioPlayer;
   // true tant que la voix est considérée comme "en train de jouer" une note
-  // — remis à false dès que didJustFinish se déclenche (voir jouerSurUneVoix)
-  // OU laissé à true si cette voix se fait voler avant sa fin naturelle
-  // (reserverVoix la réutilise alors directement, sans jamais dépendre de ce
-  // passage à false).
+  // — remis à false dès que didJustFinish se déclenche (voir declencherVoix),
+  // OU par stopTout()/le fade d'un vol de voix (fadeOutEtCouper), OU laissé
+  // à true si cette voix se fait voler avant sa fin naturelle (reserverVoix
+  // la réutilise alors directement, sans jamais dépendre de ce passage à
+  // false).
   busy: boolean;
   // Horodatage (Date.now()) du dernier déclenchement de cette voix — sert à
   // repérer la voix la plus ANCIENNE quand toutes sont occupées (vol de
   // voix, voir reserverVoix), et de "jeton" pour ignorer un évènement
   // didJustFinish tardif d'une lecture déjà remplacée entre-temps sur cette
-  // même voix (voir triggerToken dans jouerSurUneVoix).
+  // même voix (voir triggerToken dans preparerVoixPourNote/declencherVoix).
   declenchedAt: number;
   // Nom du sample ACTUELLEMENT chargé sur cette voix (via player.replace()),
   // ou null tant qu'aucune note n'a encore été jouée dessus — évite un
@@ -204,26 +228,31 @@ type Voice = {
 const voices: Voice[] = [];
 
 // Promesse d'initialisation PARTAGÉE plutôt qu'un simple booléen "déjà
-// préparé" : si jouerNote() et jouerAccord() sont appelées presque en même
-// temps AVANT la fin de la préparation, un simple booléen mis à true dès le
-// DÉBUT de preparerPiano() laisserait le 2e appel repartir immédiatement,
-// alors que le pool n'est pas encore rempli (voices vide) — en repartant sur
-// LA MÊME promesse, tout appelant attend la fin de la VRAIE préparation,
-// peu importe qui l'a déclenchée.
+// préparé" : si l'écran d'impro ET jouerNote()/jouerAccord() (voir plus bas)
+// appellent prechargerPiano() presque en même temps, AVANT la fin de la
+// préparation, un simple booléen mis à true dès le DÉBUT laisserait le 2e
+// appel repartir immédiatement alors que le pool n'est pas encore rempli
+// (voices vide) — en repartant sur LA MÊME promesse, tout appelant attend
+// la fin de la VRAIE préparation, peu importe qui l'a déclenchée.
 let preparationEnCours: Promise<void> | null = null;
 
-// Idempotente et sûre en cas d'appels concurrents (voir preparationEnCours
-// ci-dessus) — jouerNote()/jouerAccord() l'appellent systématiquement avant
-// de jouer quoi que ce soit.
-export function preparerPiano(): Promise<void> {
+// PRÉCHARGEMENT — appelée EXPLICITEMENT au montage de l'écran d'entrée de
+// l'exercice d'improvisation (voir ImproIntroScreen.tsx), PAS au démarrage
+// de l'app : créer le pool de 16 players + charger les 13 samples a un coût
+// non négligeable, inutile de le payer pour un utilisateur qui n'ouvre
+// jamais cet exercice. jouerNote()/jouerAccord() l'appellent QUAND MÊME
+// aussi, systématiquement, avant de jouer quoi que ce soit : c'est le
+// FILET DE SÉCURITÉ si le piano est utilisé sans être passé par cet écran
+// (ou avant que son appel n'ait fini) — idempotente et sûre en cas d'appels
+// concurrents (voir preparationEnCours ci-dessus), donc sans risque à
+// appeler depuis plusieurs endroits.
+export function prechargerPiano(): Promise<void> {
   if (!preparationEnCours) {
     preparationEnCours = (async () => {
       await configurerAudio();
 
-      // "null" comme source initiale : aucune voix n'a de sample chargé tant
-      // qu'elle n'a pas servi une première fois (voir sampleCharge et
-      // player.replace() dans jouerSurUneVoix) — pas besoin de choisir un
-      // sample par défaut arbitraire ici.
+      // "null" comme source initiale : le vrai sample de chaque voix est
+      // chargé juste après (voir le préchargement plus bas), pas ici.
       for (let i = 0; i < VOICE_COUNT; i++) {
         voices.push({
           player: createAudioPlayer(null),
@@ -233,17 +262,42 @@ export function preparerPiano(): Promise<void> {
           subscription: null,
         });
       }
+
+      // PRÉCHARGEMENT DES SAMPLES : dès la création du pool, on charge tout
+      // de suite CHAQUE sample sur sa PROPRE voix dédiée (13 samples pour
+      // VOICE_COUNT = 16 voix : il en reste toujours quelques-unes vierges
+      // pour la polyphonie au-delà de 13 notes simultanées). Sans ça, le
+      // premier jouerNote()/jouerAccord() sur un sample donné devait
+      // attendre son chargement (replace() + attendreChargement) avant de
+      // pouvoir jouer — c'est cette attente, plus ou moins longue selon que
+      // le sample était déjà en cache ou non, qui causait l'égrenage d'un
+      // accord (certaines notes prêtes tout de suite, d'autres non).
+      // reserverVoix() (plus bas) préfère ensuite, tant qu'elle est encore
+      // libre, la voix qui porte déjà le bon sample — la note part alors
+      // sans aucun rechargement.
+      const preloadCount = Math.min(VOICE_COUNT, SAMPLES.length);
+      await Promise.all(
+        SAMPLES.slice(0, preloadCount).map((sample, index) => {
+          const voice = voices[index];
+          voice.player.replace(sample.source);
+          voice.sampleCharge = sample.note;
+          return attendreChargement(voice.player);
+        }),
+      );
     })();
   }
 
   return preparationEnCours;
 }
 
-// Libère les VOICE_COUNT voix (utile si ce système n'est plus utilisé du
-// tout, ex: démontage définitif d'un écran dédié) — jamais appelée
-// automatiquement. Remet aussi preparationEnCours à null : un preparerPiano()
-// ultérieur reconstruit alors un pool neuf plutôt que de renvoyer l'ancienne
-// promesse (déjà résolue, mais pointant vers un tableau vidé).
+// Libère les VOICE_COUNT voix — optionnel, à appeler par exemple quand
+// l'utilisateur QUITTE l'exercice d'improvisation si on veut rendre la
+// mémoire tout de suite plutôt que de garder le pool prêt pour un retour
+// rapide dans l'exercice (compromis mémoire/latence laissé à l'appelant :
+// rien n'appelle cette fonction automatiquement dans ce périmètre). Remet
+// aussi preparationEnCours à null : un prechargerPiano() ultérieur
+// reconstruit alors un pool neuf plutôt que de renvoyer l'ancienne promesse
+// (déjà résolue, mais pointant vers un tableau vidé).
 export function libererPiano(): void {
   voices.forEach((voice) => {
     voice.subscription?.remove();
@@ -303,57 +357,104 @@ function fadeOutEtCouper(voice: Voice): Promise<void> {
   });
 }
 
-// Choisit ET réserve IMMÉDIATEMENT (busy = true, declenchedAt à jour) une
-// voix du pool : une voix LIBRE en priorité, sinon la voix la plus ANCIENNE
-// (vol de voix / voice stealing, la moins susceptible d'être encore
-// musicalement utile — les notes plus récentes appartiennent probablement au
-// même accord qu'on est justement en train de jouer).
+// Marque une voix comme réservée (busy = true, declenchedAt à jour) et
+// renvoie si elle était DÉJÀ occupée avant cet appel — factorisé car
+// reserverVoix (juste en dessous) a 3 issues possibles qui doivent toutes
+// marquer la voix choisie de la même façon.
+function marquerReservee(voice: Voice): { voice: Voice; etaitDejaOccupee: boolean } {
+  const etaitDejaOccupee = voice.busy;
+  voice.busy = true;
+  voice.declenchedAt = Date.now();
+  return { voice, etaitDejaOccupee };
+}
+
+// Choisit ET réserve IMMÉDIATEMENT une voix du pool pour jouer sampleNote,
+// par ordre de préférence :
+// 1) une voix LIBRE qui porte DÉJÀ ce sample (préchargée par
+//    prechargerPiano(), ou réutilisée d'un jeu précédent) : aucun
+//    rechargement nécessaire, la note peut partir instantanément — c'est ce
+//    qui maximise les chances que toutes les notes d'un accord soient
+//    prêtes en même temps ;
+// 2) sinon, n'importe quelle voix LIBRE (devra recharger son sample) ;
+// 3) sinon (toutes occupées), la voix la plus ANCIENNE (vol de voix / voice
+//    stealing, la moins susceptible d'être encore musicalement utile — les
+//    notes plus récentes appartiennent probablement au même accord qu'on
+//    est justement en train de jouer).
 //
 // La réservation est faite ICI, de façon SYNCHRONE (avant tout "await" chez
 // l'appelant) : essentiel pour qu'un accord de plusieurs notes jouées "en
 // même temps" (jouerAccord, Promise.all) ne fasse jamais choisir 2 fois LA
 // MÊME voix pour 2 notes différentes du même accord — sans cette réservation
 // synchrone, les 2 notes pourraient toutes les deux voir la même voix comme
-// "libre" (ou comme "la plus ancienne") avant qu'aucune des deux n'ait eu la
-// main pour la marquer occupée.
-function reserverVoix(): { voice: Voice; etaitDejaOccupee: boolean } {
+// "libre"/"préchargée" avant qu'aucune des deux n'ait eu la main pour la
+// marquer occupée.
+function reserverVoix(sampleNote: string): { voice: Voice; etaitDejaOccupee: boolean } {
+  const voixLibrePrechargee = voices.find((voice) => !voice.busy && voice.sampleCharge === sampleNote);
+  if (voixLibrePrechargee) return marquerReservee(voixLibrePrechargee);
+
   const voixLibre = voices.find((voice) => !voice.busy);
-  const voice =
-    voixLibre ??
-    voices.reduce((plusAncienne, courante) =>
-      courante.declenchedAt < plusAncienne.declenchedAt ? courante : plusAncienne,
-    );
+  if (voixLibre) return marquerReservee(voixLibre);
 
-  const etaitDejaOccupee = voice.busy;
-
-  voice.busy = true;
-  voice.declenchedAt = Date.now();
-
-  return { voice, etaitDejaOccupee };
+  const plusAncienne = voices.reduce((acc, courante) =>
+    courante.declenchedAt < acc.declenchedAt ? courante : acc,
+  );
+  return marquerReservee(plusAncienne);
 }
 
-type DeclenchementVoix = {
+// --- COUPURE DU SON PRÉCÉDENT -----------------------------------------------
+// Coupe TOUT ce qui est actuellement en train de jouer (toutes les voix
+// occupées du pool), avec le même micro-fade que le vol de voix (voir
+// fadeOutEtCouper) pour éviter un clic. Appelée systématiquement au tout
+// début de jouerNote()/jouerAccord() (voir plus bas) : jouer une nouvelle
+// note ou un nouvel accord coupe donc TOUJOURS ce qui sonnait encore, au
+// lieu de se superposer dessus — c'est ce qui corrige la superposition
+// décrite quand on enchaîne plusieurs accords rapidement. Exportée aussi
+// pour un usage direct (ex: un futur bouton "silence"), même si rien
+// d'autre ne l'appelle dans ce périmètre.
+export async function stopTout(): Promise<void> {
+  const voixOccupees = voices.filter((voice) => voice.busy);
+
+  await Promise.all(
+    voixOccupees.map(async (voice) => {
+      await fadeOutEtCouper(voice);
+      voice.subscription?.remove();
+      voice.subscription = null;
+      voice.busy = false;
+    }),
+  );
+}
+
+type VoixPreparee = {
   result: LectureNoteResult;
   voice: Voice;
+  // Jeton du déclenchement à venir (voir son utilisation dans declencherVoix)
+  // — capturé ICI, à la fin de la PRÉPARATION, pas au moment du
+  // déclenchement : les deux sont de toute façon la même valeur puisque rien
+  // ne touche declenchedAt entre la préparation et le déclenchement d'une
+  // même note.
+  triggerToken: number;
 };
 
-// Joue UNE note sur une voix du pool (réservée via reserverVoix) : coupe
-// proprement l'ancien contenu si la voix était occupée, recharge le sample
-// seulement si nécessaire, configure le pitch/rate, puis joue. La voix se
-// libère TOUTE SEULE dès qu'elle a fini (didJustFinish) — voir triggerToken
-// pour ignorer un évènement tardif si la voix a depuis été réutilisée pour
-// une autre note.
-async function jouerSurUneVoix(note: string): Promise<DeclenchementVoix> {
+// --- PRÉPARATION D'UNE NOTE (sans la jouer) --------------------------------
+// Réserve une voix, coupe proprement son éventuel contenu précédent, recharge
+// son sample si nécessaire, règle son volume/pitch/rate et la repositionne au
+// tout début — bref, tout ce qu'il faut pour qu'elle soit prête à jouer
+// INSTANTANÉMENT. NE DÉCLENCHE PAS la lecture (pas de play() ici) : c'est
+// exactement cette séparation qui permet à jouerAccord() (plus bas) de
+// préparer TOUTES les notes d'un accord avant d'en jouer UNE SEULE — voir
+// declencherVoix ci-dessous et le commentaire de jouerAccord.
+async function preparerVoixPourNote(note: string): Promise<VoixPreparee> {
   const { sample, semitoneOffset, rate } = calculerCorrespondanceSample(note);
-  const { voice, etaitDejaOccupee } = reserverVoix();
+  const { voice, etaitDejaOccupee } = reserverVoix(sample.note);
 
   if (etaitDejaOccupee) {
     await fadeOutEtCouper(voice);
   }
 
   // Désabonne l'écouteur de la lecture précédente sur cette voix (s'il en
-  // restait un) avant d'en attacher un nouveau plus bas — sans ça, une voix
-  // souvent recyclée accumulerait un écouteur mort par recyclage.
+  // restait un) avant d'en attacher un nouveau dans declencherVoix — sans
+  // ça, une voix souvent recyclée accumulerait un écouteur mort par
+  // recyclage.
   voice.subscription?.remove();
   voice.subscription = null;
 
@@ -363,9 +464,9 @@ async function jouerSurUneVoix(note: string): Promise<DeclenchementVoix> {
     await attendreChargement(voice.player);
   }
 
-  // Remet le volume au maximum : une voix qui vient d'être VOLÉE (voir
-  // fadeOutEtCouper) a son volume descendu à 0 — sans ça, la nouvelle note
-  // serait silencieuse.
+  // Remet le volume au maximum : une voix qui vient d'être VOLÉE/coupée
+  // (voir fadeOutEtCouper) a son volume descendu à 0 — sans ça, la nouvelle
+  // note serait silencieuse.
   voice.player.volume = 1;
 
   // shouldCorrectPitch = false : INDISPENSABLE. Par défaut (true), la
@@ -375,12 +476,38 @@ async function jouerSurUneVoix(note: string): Promise<DeclenchementVoix> {
   voice.player.shouldCorrectPitch = false;
   voice.player.setPlaybackRate(rate);
 
+  // Remet le sample au tout début : sans ça, une voix recyclée reprendrait
+  // au milieu du fichier précédent au lieu de repartir de zéro. Fait ICI,
+  // PENDANT la préparation (pas au déclenchement) : c'est justement l'étape
+  // la plus lente et la plus variable (voir le commentaire en haut de
+  // fichier) — mieux vaut l'avoir déjà faite avant de vouloir déclencher
+  // toutes les notes de l'accord d'un coup.
+  await voice.player.seekTo(0);
+
+  return {
+    result: { noteJouee: note, sampleUtilise: sample.note, decalageDemiTons: semitoneOffset },
+    voice,
+    triggerToken: voice.declenchedAt,
+  };
+}
+
+// --- DÉCLENCHEMENT D'UNE NOTE DÉJÀ PRÉPARÉE ---------------------------------
+// Lance réellement la lecture (play()) d'une voix préparée par
+// preparerVoixPourNote(), et met en place l'écoute de sa fin naturelle
+// (didJustFinish) pour la libérer. Volontairement SYNCHRONE : ni "async" ni
+// "await", ne renvoie PAS une Promise — jouerAccord() peut donc l'appeler
+// pour TOUTES les notes de l'accord via un simple .map() qui s'exécute
+// ENTIÈREMENT dans la même tâche JavaScript (contrairement au .map() de la
+// PRÉPARATION plus haut, qui lui attend une Promise par note, donc s'étale
+// dans le temps) — les N appels à play() se suivent donc directement, sans
+// repasser par la boucle d'évènements entre deux, aussi proches dans le
+// temps que possible.
+function declencherVoix({ voice, triggerToken, result }: VoixPreparee): LectureNoteResult {
   // Jeton du déclenchement courant : si cette voix est réutilisée pour une
   // AUTRE note avant que celle-ci n'ait fini (declenchedAt change alors), un
   // évènement didJustFinish tardif de CETTE lecture-ci ne doit plus la
   // marquer comme libre (elle joue déjà autre chose) — d'où la comparaison
   // ci-dessous.
-  const triggerToken = voice.declenchedAt;
   voice.subscription = voice.player.addListener('playbackStatusUpdate', (status: AudioStatus) => {
     if (status.didJustFinish && voice.declenchedAt === triggerToken) {
       voice.subscription?.remove();
@@ -389,42 +516,50 @@ async function jouerSurUneVoix(note: string): Promise<DeclenchementVoix> {
     }
   });
 
-  // Remet le sample au tout début avant de jouer : sans ça, une voix
-  // recyclée reprendrait au milieu du fichier précédent au lieu de repartir
-  // de zéro.
-  await voice.player.seekTo(0);
   voice.player.play();
 
-  return {
-    result: { noteJouee: note, sampleUtilise: sample.note, decalageDemiTons: semitoneOffset },
-    voice,
-  };
+  return result;
 }
 
 // --- UNE SEULE NOTE ---------------------------------------------------------
 // jouerNote("E4") par exemple : E4 n'a pas de sample propre (les samples
 // sont espacés de 3 demi-tons : ..., C4, D#4, F#4, ...) — on joue donc le
 // sample le plus proche (D#4, à 1 demi-ton en dessous) en le pitch-shiftant
-// de +1 demi-ton pour qu'il sonne comme un E4, sur une voix du pool.
+// de +1 demi-ton pour qu'il sonne comme un E4, sur une voix du pool. Coupe
+// d'abord tout ce qui sonnait encore (voir stopTout).
 export async function jouerNote(note: string): Promise<LectureNoteResult> {
-  await preparerPiano();
-  const { result } = await jouerSurUneVoix(note);
-  return result;
+  await prechargerPiano();
+  await stopTout();
+  const preparee = await preparerVoixPourNote(note);
+  return declencherVoix(preparee);
 }
 
 // --- ACCORDS PLAQUÉS (plusieurs notes en même temps) ------------------------
 // jouerAccord(["C4", "E4", "G4"]) joue les 3 notes EN MÊME TEMPS (accord
 // plaqué) — PAS l'une après l'autre (ça, ce serait un arpège, explicitement
-// hors périmètre ici). Chaque note de l'accord réserve SA PROPRE voix du pool
-// (voir reserverVoix) : pas de risque qu'une note de l'accord en coupe une
-// autre, MÊME si 2 notes de l'accord retombent sur le même sample (ex: D4 et
-// D#4, toutes deux plus proches du sample D#4) — chacune a sa propre voix,
-// donc les 2 sonnent réellement ensemble. Promise.all lance le chargement
-// des N notes EN PARALLÈLE (pas en série) : chaque note démarre sa lecture
-// dès qu'ELLE est prête, sans attendre les autres — c'est ce parallélisme
-// qui produit l'effet "plaqué".
+// hors périmètre ici). Coupe d'abord tout ce qui sonnait encore (stopTout),
+// PUIS sépare PRÉPARATION et DÉCLENCHEMENT :
+// 1) Promise.all(... preparerVoixPourNote ...) attend que CHAQUE note soit
+//    INDIVIDUELLEMENT prête (voix réservée, sample chargé, pitch/rate
+//    réglés, repositionnée à zéro) avant de continuer. C'est cette étape
+//    dont la durée varie le plus (une note dont le sample est déjà en cache
+//    est quasi instantanée, une autre qui doit recharger un sample
+//    différent prend quelques dizaines de ms) — la séparer du déclenchement
+//    est exactement ce qui évite l'égrenage : on ne joue RIEN tant que tout
+//    le monde n'est pas prêt.
+// 2) Une fois TOUTES prêtes, un .map() sur declencherVoix (synchrone, voir
+//    son commentaire) déclenche chaque voix dans la même tâche JavaScript,
+//    sans attente entre deux notes.
+// Chaque note réserve en plus SA PROPRE voix (voir reserverVoix) : pas de
+// risque qu'une note de l'accord en coupe une autre, MÊME si 2 notes
+// retombent sur le même sample (ex: D4 et D#4, toutes deux plus proches du
+// sample D#4) — chacune a sa propre voix, donc les 2 sonnent réellement
+// ensemble.
 export async function jouerAccord(notes: string[]): Promise<LectureNoteResult[]> {
-  await preparerPiano();
-  const declenchements = await Promise.all(notes.map((note) => jouerSurUneVoix(note)));
-  return declenchements.map((declenchement) => declenchement.result);
+  await prechargerPiano();
+  await stopTout();
+
+  const preparees = await Promise.all(notes.map((note) => preparerVoixPourNote(note)));
+
+  return preparees.map((preparee) => declencherVoix(preparee));
 }

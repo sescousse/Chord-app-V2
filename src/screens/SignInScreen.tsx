@@ -50,7 +50,7 @@ export default function SignInScreen() {
       // Pas de navigation manuelle : une connexion réussie change la session
       // Supabase, ce qui déclenche onAuthStateChange dans AuthContext — et
       // c'est CE changement qui fait basculer l'aiguillage racine (App.tsx)
-      // de AuthStack vers RootNavigator, automatiquement.
+      // de AuthStack vers AppStack, automatiquement.
     } catch (caughtError) {
       // Erreurs qui n'arrivent jamais jusqu'à Supabase (pas de réseau...).
       setErrorMessage(caughtError instanceof Error ? caughtError.message : String(caughtError));

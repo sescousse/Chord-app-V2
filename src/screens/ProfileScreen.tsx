@@ -18,6 +18,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useProfile } from '../context/ProfileContext';
 import { useSucces } from '../context/SuccesContext';
+import { useSettingsDrawer } from '../context/SettingsDrawerContext';
 import { chargerRelations, determinerTypeRelation, type RelationsUtilisateur } from '../lib/follows';
 import { SUCCES } from '../dataset/succes';
 import type { SocialStackParamList } from '../navigation/SocialStack';
@@ -64,8 +65,17 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { width: windowWidth } = useWindowDimensions();
 
-  const { profil, isLoading: isProfileLoading, error: profileError } = useProfile();
+  const {
+    profil,
+    isLoading: isProfileLoading,
+    error: profileError,
+    ajouterJetons,
+    depenserJetons,
+  } = useProfile();
   const { succesDebloques } = useSucces();
+  // Ouvre le menu réglages (drawer glissant, voir SettingsDrawer.tsx) —
+  // bouton engrenage plus bas.
+  const { openDrawer } = useSettingsDrawer();
 
   // --- EN-TÊTE COLLANT (nom + boutons partage/réglages) ------------------
   // Principe (nouveau dans cette app, d'où le détail des commentaires) :
@@ -221,14 +231,30 @@ export default function ProfileScreen() {
     navigation.navigate('SearchUsers');
   };
 
-  // Pas de navigation manuelle après la déconnexion : signOut() vide la
-  // session Supabase, ce qui déclenche onAuthStateChange dans AuthContext
-  // et fait basculer tout seul l'aiguillage racine (App.tsx) vers AuthStack.
-  const handleSignOut = async () => {
-    const { error } = await supabase.auth.signOut();
+  // --- TEST TEMPORAIRE DU SOCLE MONNAIE (jetons) --------------------------
+  // TODO: à retirer une fois le socle monnaie (ajouterJetons/depenserJetons,
+  // ProfileContext.tsx) validé manuellement — sert uniquement à vérifier ici
+  // que gagner fonctionne ET, surtout, que dépenser REFUSE bien quand le
+  // solde est insuffisant (Alert.alert("Erreur", ...) plutôt qu'un débit
+  // silencieux qui rendrait le solde négatif).
+  const handleTestAjouterJetons = async () => {
+    const { error } = await ajouterJetons(50);
     if (error) {
-      Alert.alert('Erreur', error.message);
+      Alert.alert('Erreur', error);
+      return;
     }
+    Alert.alert('Test jetons', '+50 jetons ajoutés.');
+  };
+
+  const handleTestDepenserJetons = async () => {
+    const { error } = await depenserJetons(30);
+    if (error) {
+      // C'est ICI que le refus "solde insuffisant" (voir depenserJetons,
+      // ProfileContext.tsx) doit s'afficher — le solde n'a alors PAS bougé.
+      Alert.alert('Test jetons', error);
+      return;
+    }
+    Alert.alert('Test jetons', '-30 jetons dépensés.');
   };
 
   const displayName = isProfileLoading
@@ -403,6 +429,25 @@ export default function ProfileScreen() {
 
         <View style={styles.divider} />
 
+        {/* TEST TEMPORAIRE — voir handleTestAjouterJetons/handleTestDepenserJetons :
+            à retirer une fois le socle monnaie validé manuellement. */}
+        <View style={styles.section}>
+          <Text style={theme.text.title}>Test jetons (temporaire)</Text>
+          <Text style={styles.testJetonsSolde}>
+            Solde actuel : {isProfileLoading ? '…' : profil ? profil.jetons : '—'} 🪙
+          </Text>
+          <View style={styles.testJetonsRow}>
+            <Pressable style={styles.testJetonsButton} onPress={handleTestAjouterJetons}>
+              <Text style={styles.testJetonsButtonLabel}>test +50 jetons</Text>
+            </Pressable>
+            <Pressable style={styles.testJetonsButton} onPress={handleTestDepenserJetons}>
+              <Text style={styles.testJetonsButtonLabel}>test -30 jetons</Text>
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.divider} />
+
         <View style={styles.section}>
           <Text style={theme.text.title}>Succès</Text>
           {/* SUCCES (dataset/succes.ts) : TOUTE la liste, y compris les succès
@@ -432,12 +477,6 @@ export default function ProfileScreen() {
               );
             })}
           </View>
-        </View>
-
-        <View style={styles.section}>
-          <Pressable style={styles.signOutButton} onPress={handleSignOut}>
-            <Text style={styles.signOutButtonLabel}>Se déconnecter</Text>
-          </Pressable>
         </View>
       </Animated.ScrollView>
 
@@ -473,12 +512,7 @@ export default function ProfileScreen() {
             >
               <Text style={styles.iconButtonLabel}>📤</Text>
             </Pressable>
-            <Pressable
-              style={styles.iconButton}
-              onPress={() => {
-                // TODO: réglages
-              }}
-            >
+            <Pressable style={styles.iconButton} onPress={openDrawer}>
               <Text style={styles.iconButtonLabel}>⚙️</Text>
             </Pressable>
           </View>
@@ -747,6 +781,35 @@ const styles = StyleSheet.create({
     color: theme.colors.textMuted,
     textAlign: 'center',
   },
+  // --- TEST TEMPORAIRE JETONS (à retirer avec la section JSX correspondante) ---
+  testJetonsSolde: {
+    fontSize: theme.text.size.md,
+    color: theme.colors.textMuted,
+  },
+  testJetonsRow: {
+    flexDirection: 'row',
+    gap: theme.spacing.md,
+  },
+  // Même recette que "actionButton" de creation.tsx (contour, fond surface) :
+  // pas un bouton primaire, ce sont des outils de test, pas une action
+  // principale de l'écran.
+  testJetonsButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    paddingVertical: theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  testJetonsButtonLabel: {
+    fontSize: theme.text.size.sm,
+    fontWeight: theme.text.weight.semibold,
+    color: theme.colors.primary,
+    textAlign: 'center',
+  },
   achievementTile: {
     width: '48%',
     marginBottom: theme.spacing.md,
@@ -777,17 +840,5 @@ const styles = StyleSheet.create({
   },
   achievementTitleLocked: {
     color: theme.colors.locked,
-  },
-  signOutButton: {
-    alignItems: 'center',
-    paddingVertical: theme.spacing.md,
-    borderRadius: theme.radius.lg,
-    borderWidth: 1,
-    borderColor: theme.colors.danger,
-  },
-  signOutButtonLabel: {
-    fontSize: theme.text.size.md,
-    fontWeight: theme.text.weight.semibold,
-    color: theme.colors.danger,
   },
 });

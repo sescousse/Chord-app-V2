@@ -6,6 +6,7 @@ import { theme } from '../theme';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import type { Profil } from '../context/ProfileContext';
+import { useQuetes } from '../context/QuetesContext';
 import { suivre, nePlusSuivre, estSuivi, compterAbonnes, compterAbonnements } from '../lib/follows';
 import type { SocialStackParamList } from '../navigation/SocialStack';
 
@@ -19,6 +20,7 @@ type UserProfileScreenProps = NativeStackScreenProps<SocialStackParamList, 'User
 export default function UserProfileScreen({ route }: UserProfileScreenProps) {
   const { userId } = route.params;
   const { user } = useAuth();
+  const { avancerQuete } = useQuetes();
   // On ne peut pas se suivre soi-même : pas de bouton Suivre dans ce cas
   // (voir le rendu plus bas).
   const isOwnProfile = user?.id === userId;
@@ -100,6 +102,9 @@ export default function UserProfileScreen({ route }: UserProfileScreenProps) {
     setFollowError(null);
     setIsFollowActionPending(true);
 
+    // "isFollowing" ICI reflète encore l'état AVANT ce tap : false → cette
+    // action est un vrai "suivre" (pas un "ne plus suivre").
+    const isNouveauSuivi = !isFollowing;
     const action = isFollowing ? nePlusSuivre : suivre;
     const { error: actionError } = await action(userId);
 
@@ -107,6 +112,13 @@ export default function UserProfileScreen({ route }: UserProfileScreenProps) {
       setFollowError(actionError);
       setIsFollowActionPending(false);
       return;
+    }
+
+    // QUÊTE DU JOUR 'suivis_jour' — SEULEMENT pour un nouveau suivi, jamais
+    // pour un "ne plus suivre" (qui ne doit évidemment rien faire avancer).
+    // "void" : ne bloque jamais la mise à jour du bouton ci-dessous.
+    if (isNouveauSuivi) {
+      void avancerQuete('suivis_jour', 1);
     }
 
     setIsFollowing(!isFollowing);

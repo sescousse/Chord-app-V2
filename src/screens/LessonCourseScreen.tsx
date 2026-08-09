@@ -10,6 +10,7 @@ import LessonIntroScreen from './LessonIntroScreen';
 import { InteractivePiano } from '../components/InteractivePiano';
 import { useProfile } from '../context/ProfileContext';
 import { useSucces } from '../context/SuccesContext';
+import { useQuetes } from '../context/QuetesContext';
 import { XP_COURS, XP_FEEDBACK_DURATION_MS } from '../lib/xpRewards';
 
 // NativeStackScreenProps<HomeStackParamList, 'Lesson'> donne à la fois
@@ -24,6 +25,7 @@ export default function LessonCourseScreen({ route, navigation }: LessonCourseSc
 
   const { addXp } = useProfile();
   const { debloquerSucces } = useSucces();
+  const { avancerQuete } = useQuetes();
 
   // FEEDBACK XP — "+20 XP" affiché brièvement quand la leçon se termine
   // (voir handleFinishLesson plus bas), même pattern que dans
@@ -134,6 +136,18 @@ export default function LessonCourseScreen({ route, navigation }: LessonCourseSc
     // s'affiche tout seul par-dessus (voir SuccesCelebrationOverlay.tsx),
     // indépendamment de la fermeture de CET écran juste en dessous.
     void debloquerSucces('premiere_lecon');
+
+    // QUÊTES DU JOUR — 2 avancées distinctes pour ce même événement : le
+    // GAIN d'XP qu'on vient de recevoir ci-dessus (fait avancer 'xp_jour' du
+    // MONTANT réellement gagné, XP_COURS — pas le total du profil, voir le
+    // commentaire "PIÈGE ANTI-BOUCLE" dans QuetesContext.tsx pour pourquoi ce
+    // branchement vit ICI plutôt que dans addXp lui-même), ET le fait d'avoir
+    // terminé une leçon en tant que tel ('lecons_jour'). "void" (pas de
+    // await), même raison que debloquerSucces() ci-dessus : n'affecte jamais
+    // la sortie de la leçon, avancerQuete() est un no-op silencieux si
+    // aucune quête active de ce type n'a été tirée aujourd'hui.
+    void avancerQuete('xp_jour', XP_COURS);
+    void avancerQuete('lecons_jour', 1);
 
     setXpFeedback(`+${XP_COURS} XP`);
     // Referme l'écran APRÈS avoir laissé le temps de voir le feedback (sinon

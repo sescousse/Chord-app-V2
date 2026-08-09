@@ -2,6 +2,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import HomeScreen from '../screens/HomeScreen';
 import LessonCourseScreen from '../screens/LessonCourseScreen';
+import BoutiqueJetonsScreen from '../screens/BoutiqueJetonsScreen';
 import { colors } from '../theme';
 import type { Lesson } from '../dataset/courseTheorie';
 
@@ -21,6 +22,9 @@ import type { Lesson } from '../dataset/courseTheorie';
 export type HomeStackParamList = {
   HomeMain: undefined;
   Lesson: { lesson: Lesson };
+  // Ouvert depuis l'icône jetons du header d'accueil (voir HomeScreen.tsx) —
+  // placeholder pour l'instant (voir BoutiqueJetonsScreen.tsx).
+  BoutiqueJetons: undefined;
 };
 
 const Stack = createNativeStackNavigator<HomeStackParamList>();
@@ -39,6 +43,14 @@ export default function HomeStack() {
         name="Lesson"
         component={LessonCourseScreen}
         options={({ route }) => ({ title: route.params.lesson.title, headerShown: false })}
+      />
+      {/* Header natif par défaut ici (title + retour, comme les écrans
+          placeholder du menu réglages dans AppStack.tsx) : contenu simple,
+          pas besoin d'un header maison. */}
+      <Stack.Screen
+        name="BoutiqueJetons"
+        component={BoutiqueJetonsScreen}
+        options={{ title: 'Boutique' }}
       />
     </Stack.Navigator>
   );

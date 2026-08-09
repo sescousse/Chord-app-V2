@@ -18,6 +18,11 @@ export interface Profil {
   nom_utilisateur: string | null;
   date_inscription: string;
   xp: number;
+  // Solde de la monnaie du jeu — voir ajouterJetons/depenserJetons plus bas.
+  // Jamais négatif (depenserJetons vérifie le solde AVANT d'écrire, voir son
+  // commentaire) : contrairement à xp (qui ne fait qu'augmenter aujourd'hui),
+  // jetons peut aussi diminuer, d'où cette garantie explicite.
+  jetons: number;
   streak_actuelle: number;
   meilleure_streak: number;
   niveau: number;
@@ -27,9 +32,11 @@ export interface Profil {
   // validée — null tant qu'aucune activité n'a encore été enregistrée. Voir
   // validerActiviteDuJour() plus bas, et src/lib/streak.ts pour le calcul.
   date_derniere_activite: string | null;
-  // Nombre de "gels de série" disponibles — colonne RÉSERVÉE pour une future
-  // fonctionnalité (protéger la streak contre un jour sauté), pas encore
-  // utilisée par validerActiviteDuJour (voir le TODO dans streak.ts).
+  // Nombre de "gels de série" disponibles — protège la streak contre un (ou
+  // plusieurs) jour(s) sauté(s), consommés AUTOMATIQUEMENT par
+  // validerActiviteDuJour() plus bas (voir calculerNouvelleStreak dans
+  // streak.ts pour les règles exactes). Peut aussi être ACHETÉ contre des
+  // jetons, voir ajouterGelsSerie plus bas / GelSerieModal.tsx.
   gels_serie: number;
 }
 
@@ -38,12 +45,12 @@ export interface Profil {
 // comme définitifs. Une fois isLoading à false : soit "profil" est rempli
 // (succès), soit "error" l'est (échec) — jamais les deux à la fois.
 //
-// refreshProfile/addXp sont les 2 seules ÉCRITURES exposées par ce contexte
-// (périmètre strict de cette étape) : chacune renvoie sa propre erreur
-// éventuelle à l'appelant (pas de state d'erreur "d'écriture" séparé ici) —
-// c'est à l'écran qui déclenche l'action de décider comment l'afficher
-// (Alert, texte inline...), exactement comme handleSignOut le fait déjà
-// pour supabase.auth.signOut() dans ProfileScreen.tsx.
+// refreshProfile/addXp/ajouterJetons/depenserJetons sont les ÉCRITURES
+// exposées par ce contexte : chacune renvoie sa propre erreur éventuelle à
+// l'appelant (pas de state d'erreur "d'écriture" séparé ici) — c'est à
+// l'écran qui déclenche l'action de décider comment l'afficher (Alert, texte
+// inline...), exactement comme handleSignOut le fait déjà pour
+// supabase.auth.signOut() dans ProfileScreen.tsx.
 type ProfileContextValue = {
   profil: Profil | null;
   isLoading: boolean;
@@ -59,6 +66,26 @@ type ProfileContextValue = {
   // implémentation ci-dessous (pourquoi une lecture+écriture simple, pas
   // encore un RPC atomique).
   addXp: (amount: number) => Promise<{ error: string | null }>;
+  // Ajoute "montant" au solde de jetons — jumeau d'addXp, AUCUNE vérification
+  // de solde nécessaire (gagner ne peut jamais rendre le solde invalide).
+  ajouterJetons: (montant: number) => Promise<{ error: string | null }>;
+  // Débite "montant" du solde de jetons — DIFFÈRE d'ajouterJetons par une
+  // vérification de solde préalable (voir son commentaire détaillé plus
+  // bas) : renvoie une erreur ("Solde de jetons insuffisant.") ET n'écrit
+  // RIEN si le solde actuel ne suffit pas.
+  depenserJetons: (montant: number) => Promise<{ error: string | null }>;
+  // Ajoute "montant" au nombre de gels de série (profil.gels_serie) — même
+  // jumeau non-atomique qu'ajouterJetons, même raison (gagner un gel ne peut
+  // jamais produire un solde invalide, pas de vérification nécessaire). Voir
+  // GelSerieModal.tsx : appelée APRÈS depenserJetons (jamais avant, jamais
+  // sans), pour l'achat d'un gel avec des jetons.
+  ajouterGelsSerie: (montant: number) => Promise<{ error: string | null }>;
+  // true si un gel de série vient d'être consommé AUTOMATIQUEMENT (voir
+  // validerActiviteDuJour plus bas) pendant cette session — pas encore
+  // affiché nulle part (pas de notification/UI à cette étape, voir son TODO
+  // dans validerActiviteDuJour) : exposé pour qu'un futur écran/
+  // notification puisse le lire.
+  gelSerieVientDetreConsomme: boolean;
 };
 
 const ProfileContext = createContext<ProfileContextValue | undefined>(undefined);
@@ -80,6 +107,9 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
   const [profil, setProfil] = useState<Profil | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Voir gelSerieVientDetreConsomme dans ProfileContextValue plus haut — mis
+  // à jour uniquement par validerActiviteDuJour plus bas.
+  const [gelSerieVientDetreConsomme, setGelSerieVientDetreConsomme] = useState(false);
 
   // Partagé entre le chargement automatique (useEffect plus bas) et les
   // rechargements manuels (refreshProfile, addXp) : évite d'appeler
@@ -149,18 +179,20 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
   };
 
   // VALIDATION DE LA STREAK DU JOUR — voir src/lib/streak.ts pour le calcul
-  // pur (3 cas : déjà validé / jour consécutif / jour sauté). Ici, on se
-  // contente : de lire date_derniere_activite + streak_actuelle du profil
-  // déjà chargé, d'appliquer le calcul, et d'écrire le résultat SEULEMENT
-  // si quelque chose a changé (le cas "déjà validé aujourd'hui" ne déclenche
-  // aucun UPDATE). PAS exposée dans ProfileContextValue : ce n'est pas une
-  // action que d'autres écrans doivent pouvoir déclencher à la main, elle
-  // n'est appelée qu'automatiquement au chargement (voir le useEffect plus
-  // bas) — une fois par connexion/lancement, jamais à chaque re-render.
+  // pur (déjà validé / jour consécutif / gel de série consommé / jour(s)
+  // sauté(s) sans gel). Ici, on se contente : de lire date_derniere_activite
+  // + streak_actuelle + gels_serie du profil déjà chargé, d'appliquer le
+  // calcul, et d'écrire le résultat SEULEMENT si quelque chose a changé (le
+  // cas "déjà validé aujourd'hui" ne déclenche aucun UPDATE). PAS exposée
+  // dans ProfileContextValue : ce n'est pas une action que d'autres écrans
+  // doivent pouvoir déclencher à la main, elle n'est appelée
+  // qu'automatiquement au chargement (voir le useEffect plus bas) — une fois
+  // par connexion/lancement, jamais à chaque re-render.
   const validerActiviteDuJour = async (profilCharge: Profil, userId: string): Promise<void> => {
     const resultat = calculerNouvelleStreak(
       profilCharge.date_derniere_activite,
       profilCharge.streak_actuelle,
+      profilCharge.gels_serie,
       new Date(),
     );
 
@@ -175,12 +207,18 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
     // un record, pas la valeur courante.
     const nouvelleMeilleureStreak = Math.max(profilCharge.meilleure_streak, resultat.nouvelleStreak);
 
+    // UN SEUL UPDATE couvrant les 4 colonnes concernées (date, streak,
+    // record, gels) : contrairement à l'achat d'un gel (GelSerieModal.tsx,
+    // 2 appels séparés depenserJetons/ajouterGelsSerie), streak_actuelle et
+    // gels_serie sont écrits ICI ATOMIQUEMENT, dans LA MÊME requête SQL —
+    // aucun risque d'écrire l'un sans l'autre.
     const { data, error: updateError } = await supabase
       .from('profils')
       .update({
         date_derniere_activite: formatDateLocale(new Date()),
         streak_actuelle: resultat.nouvelleStreak,
         meilleure_streak: nouvelleMeilleureStreak,
+        gels_serie: resultat.nouveauGelsSerie,
       })
       .eq('id', userId)
       .select()
@@ -198,6 +236,13 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
     }
 
     setProfil(data as Profil);
+
+    // TODO: notification gel consommé — prévenir l'utilisateur ("Un gel de
+    // série a protégé ta série !" ou "...n'a pas suffi cette fois", selon
+    // resultat.nouvelleStreak) une fois un système de notification en place.
+    if (resultat.gelConsomme) {
+      setGelSerieVientDetreConsomme(true);
+    }
   };
 
   // Se relance à chaque changement de RÉFÉRENCE de "user" — c'est-à-dire à
@@ -289,7 +334,136 @@ export function ProfileProvider({ children }: ProfileProviderProps) {
     return { error: null };
   };
 
-  const value: ProfileContextValue = { profil, isLoading, error, refreshProfile, addXp };
+  // AJOUTER DES JETONS — jumeau d'addXp : même lecture-puis-écriture simple
+  // (même limite connue de non-atomicité, voir le commentaire détaillé sur
+  // addXp ci-dessus — acceptée ici pour la même raison). AUCUNE vérification
+  // de solde nécessaire : gagner des jetons ne peut jamais produire un solde
+  // invalide, contrairement à dépenser (voir depenserJetons juste en
+  // dessous) — c'est précisément CETTE absence de vérification qui distingue
+  // les deux fonctions, pas un détail d'implémentation secondaire.
+  const ajouterJetons = async (montant: number): Promise<{ error: string | null }> => {
+    if (!user) {
+      return { error: 'Aucun utilisateur connecté.' };
+    }
+    if (!profil) {
+      return { error: "Profil pas encore chargé, réessaie dans un instant." };
+    }
+
+    const nouveauSolde = profil.jetons + montant;
+
+    const { data, error: updateError } = await supabase
+      .from('profils')
+      .update({ jetons: nouveauSolde })
+      .eq('id', user.id)
+      .select()
+      .single();
+
+    if (!isMountedRef.current) return { error: null };
+
+    if (updateError) {
+      return { error: updateError.message };
+    }
+
+    setProfil(data as Profil);
+    return { error: null };
+  };
+
+  // DÉPENSER DES JETONS — DIFFÈRE d'ajouterJetons/addXp par une VÉRIFICATION
+  // PRÉALABLE : avant toute écriture, on s'assure que le solde ACTUEL
+  // (profil.jetons, déjà en mémoire) est >= "montant". C'est ce qui distingue
+  // fondamentalement "dépenser" de "gagner" — gagner n'a besoin d'AUCUNE
+  // condition (le solde ne fait qu'augmenter), alors que dépenser DOIT être
+  // refusé si le solde ne suit pas : sans cette vérification, "nouveauSolde"
+  // pourrait devenir négatif, un état que la monnaie du jeu ne doit JAMAIS
+  // atteindre (voir le commentaire sur Profil.jetons plus haut).
+  //
+  // Solde insuffisant → retour IMMÉDIAT, error explicite ("Solde de jetons
+  // insuffisant."), AUCUN appel Supabase tenté : ce n'est pas juste une
+  // optimisation réseau, c'est la garantie elle-même — si on écrivait quand
+  // même en laissant Postgres refuser (ex: via une contrainte CHECK), il
+  // faudrait alors distinguer CETTE erreur-là d'une vraie panne réseau/
+  // serveur pour l'afficher correctement ; vérifier côté client d'abord,
+  // avec un message dédié, rend ce cas explicite dès l'appelant (voir son
+  // usage de test dans ProfileScreen.tsx : "pas assez de jetons" doit
+  // s'afficher distinctement d'une erreur générique).
+  const depenserJetons = async (montant: number): Promise<{ error: string | null }> => {
+    if (!user) {
+      return { error: 'Aucun utilisateur connecté.' };
+    }
+    if (!profil) {
+      return { error: "Profil pas encore chargé, réessaie dans un instant." };
+    }
+
+    // LA vérification qui distingue depenserJetons de ajouterJetons (voir le
+    // commentaire ci-dessus) : refuse ICI, avant tout appel réseau, si
+    // "montant" dépasse ce que le profil possède réellement.
+    if (profil.jetons < montant) {
+      return { error: 'Solde de jetons insuffisant.' };
+    }
+
+    const nouveauSolde = profil.jetons - montant;
+
+    const { data, error: updateError } = await supabase
+      .from('profils')
+      .update({ jetons: nouveauSolde })
+      .eq('id', user.id)
+      .select()
+      .single();
+
+    if (!isMountedRef.current) return { error: null };
+
+    if (updateError) {
+      return { error: updateError.message };
+    }
+
+    setProfil(data as Profil);
+    return { error: null };
+  };
+
+  // AJOUTER DES GELS DE SÉRIE — jumeau exact d'ajouterJetons (même lecture-
+  // puis-écriture simple, même limite de non-atomicité déjà documentée sur
+  // addXp) mais sur la colonne "gels_serie". Utilisée par GelSerieModal.tsx
+  // APRÈS un depenserJetons() réussi (jamais indépendamment) : voir le
+  // commentaire "anti-incohérence" dans GelSerieModal.tsx pour le
+  // séquençage complet de l'achat.
+  const ajouterGelsSerie = async (montant: number): Promise<{ error: string | null }> => {
+    if (!user) {
+      return { error: 'Aucun utilisateur connecté.' };
+    }
+    if (!profil) {
+      return { error: "Profil pas encore chargé, réessaie dans un instant." };
+    }
+
+    const nouveauNombre = profil.gels_serie + montant;
+
+    const { data, error: updateError } = await supabase
+      .from('profils')
+      .update({ gels_serie: nouveauNombre })
+      .eq('id', user.id)
+      .select()
+      .single();
+
+    if (!isMountedRef.current) return { error: null };
+
+    if (updateError) {
+      return { error: updateError.message };
+    }
+
+    setProfil(data as Profil);
+    return { error: null };
+  };
+
+  const value: ProfileContextValue = {
+    profil,
+    isLoading,
+    error,
+    refreshProfile,
+    addXp,
+    ajouterJetons,
+    depenserJetons,
+    ajouterGelsSerie,
+    gelSerieVientDetreConsomme,
+  };
 
   return <ProfileContext.Provider value={value}>{children}</ProfileContext.Provider>;
 }

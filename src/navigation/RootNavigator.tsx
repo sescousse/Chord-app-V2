@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import ExercisesStack from './ExercisesStack';
 import HomeStack from './HomeStack';
 import SocialStack from './SocialStack';
+import QuetesScreen from '../screens/QuetesScreen';
 import { colors, tabBar } from '../theme';
 
 // L'onglet "Cours" a été retiré (voir HomeStack.tsx / HomeScreen.tsx) : son
@@ -24,6 +25,10 @@ import { colors, tabBar } from '../theme';
 export type RootTabParamList = {
   Home: undefined;
   Exercises: undefined;
+  // Onglet "Quêtes" (façon Duolingo) : pas de pile dédiée pour l'instant,
+  // QuetesScreen n'a aucune sous-navigation (voir QuetesScreen.tsx) — un
+  // Stack à un seul écran n'aurait rien apporté de plus.
+  Quetes: undefined;
   Social: undefined;
 };
 
@@ -74,12 +79,18 @@ export default function RootNavigator() {
           ),
         })}
       />
-      {/* headerShown: false ici car ExercisesStack a déjà ses propres headers (sinon deux barres superposées). */}
+      {/* headerShown: false ici car ExercisesStack a déjà ses propres headers
+          (sinon deux barres superposées). title "Apprentissage" (renommé
+          depuis "Exercices" — la page a été refondue en 4 sections
+          Jouer/S'entraîner/Écouter/Apprendre, voir ExercisesScreen.tsx) :
+          seul le libellé visible change, la clé de route "Exercises" et le
+          nom du fichier ExercisesStack.tsx restent inchangés (identifiants
+          internes seulement), même convention que "Social" → "Profil". */}
       <Tab.Screen
         name="Exercises"
         component={ExercisesStack}
         options={{
-          title: 'Exercices',
+          title: 'Apprentissage',
           headerShown: false,
           tabBarIcon: ({ color, size, focused }) => (
             <Ionicons
@@ -87,6 +98,20 @@ export default function RootNavigator() {
               size={size}
               color={color}
             />
+          ),
+        }}
+      />
+      {/* headerShown: false ici car QuetesScreen gère lui-même sa safe area
+          (voir QuetesScreen.tsx), comme les autres onglets — pas de header
+          natif par-dessus. */}
+      <Tab.Screen
+        name="Quetes"
+        component={QuetesScreen}
+        options={{
+          title: 'Quêtes',
+          headerShown: false,
+          tabBarIcon: ({ color, size, focused }) => (
+            <Ionicons name={focused ? 'trophy' : 'trophy-outline'} size={size} color={color} />
           ),
         }}
       />

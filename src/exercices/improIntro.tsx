@@ -5,6 +5,7 @@ import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { theme } from '../theme';
 import type { ExercisesStackParamList } from '../navigation/ExercisesStack';
+import { prechargerPiano } from '../lib/piano';
 
 const FADE_IN_DURATION_MS = 600;
 const FADE_OUT_DURATION_MS = 250;
@@ -48,6 +49,29 @@ export default function ImproIntroScreen() {
   // Un ref, pas un state : cette valeur ne doit pas déclencher de re-render,
   // elle sert seulement de verrou lu dans handleContinue.
   const hasStartedLeavingRef = useRef(false);
+
+  // PRÉCHARGEMENT DU PIANO : cet écran est le point d'entrée de l'exercice
+  // d'improvisation guidée (carte "Improvisation guidée" de la section JOUER
+  // sur ExercisesScreen, qui navigue directement ici) — c'est donc ICI, et
+  // pas au démarrage de l'app, qu'on déclenche le chargement
+  // des samples/du pool de voix (voir prechargerPiano, src/lib/piano.ts) :
+  // ça évite de payer ce coût pour un utilisateur qui n'ouvre jamais cet
+  // exercice, tout en laissant largement le temps à ce chargement de finir
+  // en arrière-plan (lecture de l'explication + écran ImproChoices) avant
+  // d'atteindre ImproResult, où les boutons "Écouter" sont réellement
+  // utilisés. Pas besoin d'attendre le résultat ici (pas de "await", pas
+  // d'état de chargement affiché) : jouerNote()/jouerAccord() savent charger
+  // à la volée en secours si l'utilisateur tape "Écouter" avant la fin de ce
+  // préchargement (voir le commentaire de prechargerPiano).
+  useEffect(() => {
+    // .catch() plutôt qu'un "await" : ce préchargement n'a rien à afficher
+    // (pas d'état de chargement/erreur sur CET écran, qui n'utilise pas le
+    // piano lui-même) — juste un avertissement en console en cas d'échec,
+    // même convention que PianoChord.tsx pour jouerAccord().
+    prechargerPiano().catch((error) => {
+      console.warn('prechargerPiano a échoué :', error);
+    });
+  }, []);
 
   // Fondu d'apparition au montage : 0 (valeur initiale) → 1 sur
   // FADE_IN_DURATION_MS. Le style plus bas (opacity: opacity) traduit cette

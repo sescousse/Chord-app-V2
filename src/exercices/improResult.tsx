@@ -9,6 +9,7 @@ import { PianoChord } from '../components/PianoChord';
 import { SlidePanel } from '../components/SlidePanel';
 import { useProfile } from '../context/ProfileContext';
 import { useSucces } from '../context/SuccesContext';
+import { useQuetes } from '../context/QuetesContext';
 import { XP_EXERCICE, XP_FEEDBACK_DURATION_MS } from '../lib/xpRewards';
 import {
   bassAndClusterVoicing,
@@ -937,6 +938,7 @@ export default function ResultScreen() {
 
   const { addXp } = useProfile();
   const { debloquerSucces } = useSucces();
+  const { avancerQuete } = useQuetes();
 
   // FEEDBACK XP — "+30 XP" affiché brièvement après avoir tapé "Terminer
   // l'exercice" (voir handleFinishExercise plus bas), puis effacé tout seul
@@ -972,6 +974,13 @@ export default function ResultScreen() {
       Alert.alert('Erreur', error);
       return;
     }
+
+    // QUÊTES DU JOUR — même principe que LessonCourseScreen.handleFinishLesson
+    // (voir son commentaire) : le gain d'XP fait avancer 'xp_jour' du montant
+    // réellement gagné, ET "terminer un exercice" fait avancer 'exercices_jour'
+    // séparément. "void" : ne bloque jamais le feedback XP ci-dessous.
+    void avancerQuete('xp_jour', XP_EXERCICE);
+    void avancerQuete('exercices_jour', 1);
 
     setXpFeedback(`+${XP_EXERCICE} XP`);
     if (xpFeedbackTimeoutRef.current) {

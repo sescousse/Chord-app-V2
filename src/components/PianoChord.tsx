@@ -6,6 +6,7 @@ import { Interval, Note } from 'tonal';
 import { theme } from '../theme';
 import { fitNotesToRange, invertChord } from '../dataset/chordUtils';
 import { jouerAccord } from '../lib/piano';
+import { useQuetes } from '../context/QuetesContext';
 
 // Props du composant : l'accord à afficher. On type ça avec une interface
 // plutôt qu'un "any" pour que TypeScript nous protège si on passe autre
@@ -419,6 +420,12 @@ export function PianoChord({
   showInversionControls = true,
   showArpeggioButton = true,
 }: PianoChordProps) {
+  // Voir handleListenPress plus bas — PianoChord est monté partout où un
+  // accord peut être écouté (résultat impro, Crée ta progression, panneaux
+  // voicing/accompagnement), toujours SOUS QuetesProvider (voir App.tsx) :
+  // useQuetes() y est donc toujours disponible.
+  const { avancerQuete } = useQuetes();
+
   // Largeur RÉELLE du conteneur (styles.container ci-dessous), mesurée via
   // onLayout plutôt que déduite de useWindowDimensions - largeur.
   //
@@ -761,6 +768,14 @@ export function PianoChord({
       // console pour le débogage si la lecture échoue.
       console.warn('jouerAccord a échoué :', error);
     });
+
+    // QUÊTE DU JOUR 'accords_ecoutes' — comptée sur l'INTENTION d'écouter
+    // (le tap lui-même), pas sur le succès réel de la lecture audio : pas
+    // chaînée après jouerAccord() ci-dessus, pour ne jamais dépendre d'un
+    // éventuel échec audio (voir son .catch, purement journalisé). "void" :
+    // no-op silencieux si aucune quête 'accords_ecoutes' n'a été tirée
+    // aujourd'hui, comme partout ailleurs où avancerQuete est appelé.
+    void avancerQuete('accords_ecoutes', 1);
   };
 
   return (
