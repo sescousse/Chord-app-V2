@@ -9,6 +9,9 @@ import CourseParcoursScreen from './CourseParcoursScreen';
 import LibraryScreen from './LibraryScreen';
 import { useProfile } from '../context/ProfileContext';
 import { GelSerieModal, GEL_SERIE_ICON } from '../components/GelSerieModal';
+// TEMPORAIRE — test isolé de react-native-audio-api, voir
+// src/audio/webAudioTest.ts (à retirer une fois le module natif validé).
+import { testWebAudioPlayback } from '../audio/webAudioTest';
 import type { HomeStackParamList } from '../navigation/HomeStack';
 
 // Type du hook de navigation, restreint à la pile Accueil — même convention
@@ -200,6 +203,15 @@ export default function HomeScreen() {
 
       {activeTab === 'competences' && (
         <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+          {/* TEMPORAIRE — bouton de test isolé pour react-native-audio-api
+              (voir src/audio/webAudioTest.ts) : valide que le module natif
+              est bien lié en jouant un sample existant via le nouveau moteur.
+              N'touche pas au moteur expo-audio existant (src/lib/piano.ts) —
+              à retirer une fois la validation faite. */}
+          <Pressable style={styles.webAudioTestButton} onPress={() => testWebAudioPlayback()}>
+            <Text style={styles.webAudioTestButtonLabel}>🧪 Test Web Audio</Text>
+          </Pressable>
+
           {/* BLOC STREAK — tout en haut : l'accroche de la page (voir
               streakAccent dans colors.ts, un accent volontairement fort/
               détonnant pour cette seule carte). */}
@@ -431,5 +443,20 @@ const styles = StyleSheet.create({
     fontSize: theme.text.size.sm,
     color: theme.colors.textMuted,
     textAlign: 'center',
+  },
+  // TEMPORAIRE — voir le bouton "Test Web Audio" dans le JSX, à retirer avec
+  // lui. Couleur "streakAccent" (pas primary) : le distingue visuellement du
+  // reste des boutons de l'app, pour bien signaler que c'est un outil de
+  // test, pas une fonctionnalité définitive.
+  webAudioTestButton: {
+    alignItems: 'center',
+    backgroundColor: theme.colors.streakAccent,
+    borderRadius: theme.radius.lg,
+    paddingVertical: theme.spacing.md,
+  },
+  webAudioTestButtonLabel: {
+    fontSize: theme.text.size.md,
+    fontWeight: theme.text.weight.bold,
+    color: '#FFFFFF',
   },
 });
