@@ -10,6 +10,7 @@
     "@react-navigation/native": "^7.3.7",
     "@react-navigation/native-stack": "^7.17.10",
     "@supabase/supabase-js": "^2.112.1",
+    "babel-preset-expo": "~54.0.10",
     "expo": "~54.0.37",
     "expo-asset": "~12.0.13",
     "expo-audio": "~1.1.1",
