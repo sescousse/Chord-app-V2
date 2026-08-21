@@ -5,6 +5,8 @@ import ImproChoicesScreen from '../exercices/improChoices';
 import ResultScreen from '../exercices/improResult';
 import CreationScreen from '../exercices/creation';
 import ExercisesScreen from '../screens/ExercisesScreen';
+import GammeMenuScreen from '../screens/GammeMenuScreen';
+import ReproduisAccordScreen from '../screens/ReproduisAccordScreen';
 import PlaceholderScreen, { type PlaceholderParams } from '../screens/PlaceholderScreen';
 import type { Emotion } from '../dataset/progression';
 import { colors } from '../theme';
@@ -38,6 +40,21 @@ export type ExercisesStackParamList = {
   // "Composition assistée" (carte de la section JOUER) : point d'entrée
   // direct, comme Impro ci-dessus.
   Creation: undefined;
+  // Page-menu du module "Les bases de l'improvisation" (section Apprendre),
+  // ouverte au tap sur "Démarre" de la modale "Choisis ta gamme" (voir
+  // ChoisirGammeContent.tsx / ExercisesScreen.tsx). "tonique"/"mode" : les 2
+  // choix faits dans cette modale, tels quels (pas de logique musicale ici,
+  // juste transmis pour affichage — voir GammeMenuScreen.tsx).
+  GammeMenu: { tonique: string; mode: string };
+  // TEMPORAIRE — point d'entrée de test pour ReproduisAccordExercise (voir
+  // src/components/ReproduisAccordExercise.tsx, la vraie brique : un
+  // composant AUTONOME qui ne connaît rien à la navigation, prend tonique/
+  // mode en props et gère lui-même sa propre étape "As-tu ton piano ?" — ce
+  // n'est donc plus une route séparée comme avant). ReproduisAccordScreen.tsx
+  // n'est qu'un écran-hôte minimal ; les futurs points d'entrée réels (un
+  // cours, un onglet de pratique) écriront chacun le leur, avec leur propre
+  // ParamList, sans dépendre de celui-ci.
+  ReproduisAccord: { tonique: string; mode: string };
   // Écran générique "À venir" pour toutes les cartes "Bientôt" de
   // ExercisesScreen (Backing tracks, Flash cards, cartes ÉCOUTER/APPRENDRE) —
   // même composant que les 7 placeholders du menu réglages (voir
@@ -80,6 +97,21 @@ export default function ExercisesStack() {
         name="Creation"
         component={CreationScreen}
         options={{ title: 'Crée ta progression' }}
+      />
+      {/* "title" reconstruit à partir de "tonique"/"mode" (ex: "Ré majeur") —
+          même principe que ComingSoon juste en dessous (un titre dynamique
+          dérivé des params de route plutôt qu'un texte fixe). */}
+      <Stack.Screen
+        name="GammeMenu"
+        component={GammeMenuScreen}
+        options={({ route }) => ({ title: `${route.params.tonique} ${route.params.mode}` })}
+      />
+      {/* TEMPORAIRE — voir le commentaire sur la route ReproduisAccord
+          ci-dessus. */}
+      <Stack.Screen
+        name="ReproduisAccord"
+        component={ReproduisAccordScreen}
+        options={{ title: "Reproduis l'accord" }}
       />
       {/* "title" vient du param "titre" de la carte tapée (ex: "Backing
           tracks", "Flash cards") plutôt que d'une valeur fixe — un seul écran

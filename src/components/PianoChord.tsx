@@ -6,7 +6,16 @@ import { Interval, Note } from 'tonal';
 import { theme } from '../theme';
 import { fitNotesToRange, invertChord } from '../dataset/chordUtils';
 import { jouerAccord } from '../lib/piano';
+import { jouerAccordWebAudio } from '../audio/webAudioArpeggioEngine';
 import { useQuetes } from '../context/QuetesContext';
+
+// FLAG DE BASCULE — même principe que USE_WEB_AUDIO_ARPEGGIO/
+// USE_WEB_AUDIO_WALTZ (src/exercices/improResult.tsx), séparé des deux :
+// true = le bouton "Écouter" (voir handleListenPress plus bas) passe par le
+// nouveau moteur react-native-audio-api (jouerAccordWebAudio, toutes les
+// notes programmées au même instant). false = revient au filet expo-audio
+// existant (jouerAccord, src/lib/piano.ts).
+const USE_WEB_AUDIO_CHORD = true;
 
 // Props du composant : l'accord à afficher. On type ça avec une interface
 // plutôt qu'un "any" pour que TypeScript nous protège si on passe autre
@@ -752,21 +761,26 @@ export function PianoChord({
     setInversion((current) => (current + 1) % totalInversions);
   };
 
-  // BOUTON "ÉCOUTER" — joue l'accord PLAQUÉ (toutes les notes en même temps,
-  // voir jouerAccord dans src/lib/piano.ts) tel qu'il est RÉELLEMENT affiché
-  // en ce moment : "displayedNotes" est déjà la liste finale calculée plus
-  // haut pour le dessin du clavier (renversement courant + ajustement
-  // d'octave via fitNotesToRange inclus) — on la réutilise TELLE QUELLE, pas
-  // de recalcul séparé, pour garantir que ce qu'on entend correspond
-  // exactement à ce qui est montré. jouerAccord() gère elle-même la
-  // polyphonie et la libération des ressources (voir ses commentaires) :
-  // ce composant n'a rien de plus à faire que l'appeler.
+  // BOUTON "ÉCOUTER" — joue l'accord PLAQUÉ (toutes les notes en même temps)
+  // tel qu'il est RÉELLEMENT affiché en ce moment : "displayedNotes" est
+  // déjà la liste finale calculée plus haut pour le dessin du clavier
+  // (renversement courant + ajustement d'octave via fitNotesToRange inclus)
+  // — on la réutilise TELLE QUELLE, pas de recalcul séparé, pour garantir
+  // que ce qu'on entend correspond exactement à ce qui est montré.
+  //
+  // USE_WEB_AUDIO_CHORD (voir plus haut) choisit le moteur : jouerAccordWebAudio
+  // (nouveau, react-native-audio-api, toutes les notes programmées au même
+  // instant contre l'horloge audio) ou jouerAccord (filet expo-audio,
+  // src/lib/piano.ts — gère elle-même la polyphonie et la libération des
+  // ressources). Dans les 2 cas, ce composant n'a rien de plus à faire que
+  // l'appeler.
   const handleListenPress = () => {
-    jouerAccord(displayedNotes).catch((error) => {
+    const jouer = USE_WEB_AUDIO_CHORD ? jouerAccordWebAudio : jouerAccord;
+    jouer(displayedNotes).catch((error) => {
       // Pas d'affichage d'erreur dédié ici (bouton simple, pas d'état de
       // chargement/erreur porté par PianoChord) — au moins visible en
       // console pour le débogage si la lecture échoue.
-      console.warn('jouerAccord a échoué :', error);
+      console.warn('La lecture de l’accord a échoué :', error);
     });
 
     // QUÊTE DU JOUR 'accords_ecoutes' — comptée sur l'INTENTION d'écouter

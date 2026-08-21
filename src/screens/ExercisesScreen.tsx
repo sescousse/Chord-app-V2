@@ -7,6 +7,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ExercisesStackParamList } from '../navigation/ExercisesStack';
 import { theme } from '../theme';
 import { useProfile } from '../context/ProfileContext';
+import { SlidePanel } from '../components/SlidePanel';
+import { ChoisirGammeContent } from '../components/ChoisirGammeContent';
 
 // Type du hook de navigation, restreint aux écrans de la pile Exercices.
 type ExercisesNavigation = NativeStackNavigationProp<ExercisesStackParamList, 'ExercisesList'>;
@@ -38,10 +40,14 @@ const HEADER_TABS: HeaderTab[] = [
 type CardStatus = 'disponible' | 'bientot';
 
 // Cible d'une carte : soit une route EXISTANTE de la pile Exercices (sans
-// paramètre), soit l'écran placeholder "À venir" avec son propre titre.
+// paramètre), soit l'écran placeholder "À venir" avec son propre titre, soit
+// une modale locale à CET écran (voir isChoisirGammeOpen plus bas — pour
+// l'instant, une seule carte utilise "modal", "Les bases de
+// l'improvisation").
 type CardTarget =
   | { kind: 'route'; route: 'Impro' | 'Creation' }
-  | { kind: 'comingSoon'; titre: string };
+  | { kind: 'comingSoon'; titre: string }
+  | { kind: 'modal' };
 
 type SectionCard = {
   id: string;
@@ -131,12 +137,12 @@ const CARDS_BY_TAB: Record<TabKey, SectionCard[]> = {
   ],
   apprendre: [
     {
-      id: 'schemas-musicaux',
-      icon: '🧩',
-      title: 'Schémas musicaux',
-      description: 'Explore les enchaînements d’accords les plus courants.',
-      status: 'bientot',
-      target: { kind: 'comingSoon', titre: 'Schémas musicaux' },
+      id: 'bases-improvisation',
+      icon: '🧭',
+      title: "Les bases de l'improvisation",
+      description: 'Commence par choisir ta gamme.',
+      status: 'disponible',
+      target: { kind: 'modal' },
     },
     {
       id: 'tips-modulation',
@@ -184,6 +190,12 @@ export default function ExercisesScreen() {
   // réellement fonctionnels de l'app, le plus utile à voir en premier.
   const [activeTab, setActiveTab] = useState<TabKey>('jouer');
 
+  // Pilote le panneau "Choisis ta gamme" (voir ChoisirGammeContent) — ouvert
+  // par la carte "Les bases de l'improvisation" (target: { kind: 'modal' }
+  // ci-dessus), même principe que les 3 SlidePanel de ResultScreen
+  // (improResult.tsx).
+  const [isChoisirGammeOpen, setIsChoisirGammeOpen] = useState(false);
+
   // 2 états exposés par ProfileContext à gérer (voir useProfile()) : tant que
   // isProfileLoading est vrai, "profil" n'est pas encore fiable. "…" pendant
   // le chargement, "—" en cas d'échec — jamais un chiffre périmé/inventé,
@@ -192,9 +204,21 @@ export default function ExercisesScreen() {
   const xpDisplay = isProfileLoading ? '…' : profil ? profil.xp.toLocaleString('fr-FR') : '—';
   const streakDisplay = isProfileLoading ? '…' : profil ? String(profil.streak_actuelle) : '—';
 
+  // Appelé par ChoisirGammeContent au tap sur "Démarre" (une fois actif) —
+  // ferme la modale ET ouvre la page-menu de la gamme choisie, dans cet
+  // ordre : SANS la fermer d'abord, revenir en arrière depuis GammeMenu
+  // laisserait la modale rouverte (elle reste TOUJOURS montée, voir
+  // SlidePanel.tsx) alors que l'utilisateur l'a déjà "validée".
+  const handleDemarrerModule = (tonique: string, mode: string) => {
+    setIsChoisirGammeOpen(false);
+    navigation.navigate('GammeMenu', { tonique, mode });
+  };
+
   const handleCardPress = (card: SectionCard) => {
     if (card.target.kind === 'route') {
       navigation.navigate(card.target.route);
+    } else if (card.target.kind === 'modal') {
+      setIsChoisirGammeOpen(true);
     } else {
       navigation.navigate('ComingSoon', { titre: card.target.titre });
     }
@@ -282,6 +306,14 @@ export default function ExercisesScreen() {
           </Pressable>
         ))}
       </ScrollView>
+
+      {/* Panneau "Choisis ta gamme" — voir ChoisirGammeContent. TOUJOURS
+          rendu (pas de `{isChoisirGammeOpen && ...}`) : même raison que les 3
+          SlidePanel de ResultScreen (improResult.tsx), sa fermeture doit
+          pouvoir s'animer. */}
+      <SlidePanel isOpen={isChoisirGammeOpen} onClose={() => setIsChoisirGammeOpen(false)}>
+        <ChoisirGammeContent isOpen={isChoisirGammeOpen} onDemarrer={handleDemarrerModule} />
+      </SlidePanel>
     </View>
   );
 }

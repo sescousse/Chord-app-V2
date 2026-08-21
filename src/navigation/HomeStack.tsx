@@ -3,6 +3,17 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import HomeScreen from '../screens/HomeScreen';
 import LessonCourseScreen from '../screens/LessonCourseScreen';
 import BoutiqueJetonsScreen from '../screens/BoutiqueJetonsScreen';
+// TEMPORAIRE — écran de test isolé pour le premier analyseur harmonique
+// (voir src/lib/harmonyAnalysis.ts). À retirer avec sa route ci-dessous et
+// le bouton "🧪 Test analyse" de HomeScreen.tsx une fois l'analyseur validé.
+import HarmonyTestScreen from '../screens/HarmonyTestScreen';
+// TEMPORAIRE — brique de diagnostic isolée pour évaluer la fiabilité d'une
+// détection d'accords via le micro (voir ChordDetectionTestScreen.tsx pour
+// le détail). Pur test, non branché à l'exercice "Reproduis l'accord" ni à
+// aucune autre fonctionnalité — à retirer avec sa route ci-dessous et le
+// bouton "🎙️ Test détection micro" de HomeScreen.tsx une fois le diagnostic
+// terminé.
+import ChordDetectionTestScreen from '../screens/ChordDetectionTestScreen';
 import { colors } from '../theme';
 import type { Lesson } from '../dataset/courseTheorie';
 
@@ -25,6 +36,10 @@ export type HomeStackParamList = {
   // Ouvert depuis l'icône jetons du header d'accueil (voir HomeScreen.tsx) —
   // placeholder pour l'instant (voir BoutiqueJetonsScreen.tsx).
   BoutiqueJetons: undefined;
+  // TEMPORAIRE — voir l'import HarmonyTestScreen ci-dessus.
+  HarmonyTest: undefined;
+  // TEMPORAIRE — voir l'import ChordDetectionTestScreen ci-dessus.
+  ChordDetectionTest: undefined;
 };
 
 const Stack = createNativeStackNavigator<HomeStackParamList>();
@@ -51,6 +66,19 @@ export default function HomeStack() {
         name="BoutiqueJetons"
         component={BoutiqueJetonsScreen}
         options={{ title: 'Boutique' }}
+      />
+      {/* TEMPORAIRE — voir le import HarmonyTestScreen plus haut. Header
+          natif par défaut (title + retour), comme BoutiqueJetons ci-dessus. */}
+      <Stack.Screen
+        name="HarmonyTest"
+        component={HarmonyTestScreen}
+        options={{ title: 'Test analyse' }}
+      />
+      {/* TEMPORAIRE — voir le import ChordDetectionTestScreen plus haut. */}
+      <Stack.Screen
+        name="ChordDetectionTest"
+        component={ChordDetectionTestScreen}
+        options={{ title: 'Test détection micro' }}
       />
     </Stack.Navigator>
   );

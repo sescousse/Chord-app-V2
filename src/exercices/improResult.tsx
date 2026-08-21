@@ -23,6 +23,16 @@ import {
   type ScaleChoice,
 } from '../dataset/chordUtils';
 import { ACCOMPANIMENTS, resolveStepNotes, type TriadNotes } from '../dataset/accompaniments';
+// Son des accompagnements "arpège" et "valse" (voir AccompanimentPanelContent
+// plus bas) : jouerNote/jouerAccord = filet expo-audio existant (flags à
+// false), jouerArpegeWebAudio/jouerValseWebAudio = nouveau moteur
+// react-native-audio-api, timing programmé (flags à true, voir plus bas).
+import { jouerNote, jouerAccord } from '../lib/piano';
+import {
+  jouerArpegeWebAudio,
+  jouerValseWebAudio,
+  jouerProgressionWebAudio,
+} from '../audio/webAudioArpeggioEngine';
 import { CADENCES, findExistingCadence, withCadence } from '../dataset/cadences';
 import { PROGRESSIONS } from '../dataset/progression';
 import type { ExercisesStackParamList } from '../navigation/ExercisesStack';
@@ -323,6 +333,22 @@ const VOICING_OPTIONS: VoicingOption[] = [
   },
 ];
 
+// FLAG DE BASCULE — true : le son de l'arpège passe par le nouveau moteur
+// react-native-audio-api, programmé contre l'horloge audio (timing précis,
+// voir jouerArpegeWebAudio). false : revient au filet expo-audio existant
+// (jouerNote, src/lib/piano.ts), déclenché au fur et à mesure comme avant
+// cette brique — utile pour comparer les 2 moteurs à l'oreille, ou en cas de
+// souci avec le nouveau. Ne concerne QUE l'accompagnement "arpège" (voir
+// estUneSequenceArpege plus bas) : la valse a son propre flag ci-dessous.
+const USE_WEB_AUDIO_ARPEGGIO = true;
+
+// FLAG DE BASCULE ANALOGUE, pour la VALSE — SÉPARÉ de USE_WEB_AUDIO_ARPEGGIO
+// (les 2 accompagnements peuvent donc être basculés indépendamment). true :
+// passe par jouerValseWebAudio (accords plaqués programmés contre l'horloge
+// audio). false : filet expo-audio via jouerAccord (src/lib/piano.ts),
+// déclenché pas à pas au fur et à mesure.
+const USE_WEB_AUDIO_WALTZ = true;
+
 export type AccompanimentPanelContentProps = {
   // Piloté par ResultScreen (isAccompanimentPanelOpen) : ce composant est
   // rendu comme "children" de SlidePanel, qui reste TOUJOURS monté (voir son
@@ -410,12 +436,76 @@ export function AccompanimentPanelContent({ isOpen }: AccompanimentPanelContentP
     let currentStepIndex = 0;
     let timeoutId: ReturnType<typeof setTimeout>;
 
-    // Rend le pas "index" actif. C'est ICI qu'il faudra déclencher le son de
-    // ce pas plus tard (accompaniment.steps[index].functions donne les
-    // notes à jouer).
+    // "Arpège" = tout accompagnement dont CHAQUE pas n'allume qu'UNE SEULE
+    // note (functions.length === 1) — détection STRUCTURELLE, pas un id/nom
+    // en dur : couvre "Arpège montant" ET "Arpège ouvert" (les 2 entrées
+    // actuelles de ce type dans ACCOMPANIMENTS, ../dataset/accompaniments.ts)
+    // et continuerait à couvrir tout futur accompagnement à une note par pas
+    // sans y toucher. "Valse" (pas à 3 notes plaquées) reste exclue : son son
+    // n'est PAS encore branché ici (périmètre strict de cette brique — voir
+    // USE_WEB_AUDIO_ARPEGGIO plus haut).
+    const estUneSequenceArpege = accompaniment.steps.every((step) => step.functions.length === 1);
+
+    // Rend le pas "index" actif ET déclenche son (ou leurs) son.
     const activateStep = (index: number) => {
       setStepIndex(index);
-      // TODO: son du pas courant
+
+      if (estUneSequenceArpege) {
+        if (USE_WEB_AUDIO_ARPEGGIO) {
+          // NOUVEAU MOTEUR : la séquence ENTIÈRE de ce tour de boucle est
+          // programmée EN UNE FOIS contre l'horloge audio, au moment où le
+          // tour REDÉMARRE (index 0) — voir jouerArpegeWebAudio
+          // (src/audio/webAudioArpeggioEngine.ts, timing précis via
+          // AudioContext.currentTime + start(when), comme le test arpège
+          // déjà validé). Les pas suivants (index > 0) de CE MÊME tour n'ont
+          // donc rien de plus à déclencher côté son : leur note est déjà
+          // programmée à l'avance, seul l'AFFICHAGE (setStepIndex ci-dessus)
+          // continue de suivre le séquenceur visuel existant, sans lien
+          // direct avec le moteur audio (pas de synchro serrée demandée).
+          if (index === 0) {
+            const notesDuTour = accompaniment.steps.map((step) => resolveStepNotes(step, EXAMPLE_TRIAD)[0]);
+            const dureesDuTour = accompaniment.steps.map((step) => step.durationMs);
+            jouerArpegeWebAudio(notesDuTour, dureesDuTour);
+          }
+        } else {
+          // FILET expo-audio : rejoue la note de CE pas immédiatement, au
+          // fur et à mesure (pas de programmation à l'avance) — le moteur de
+          // son déjà utilisé partout ailleurs dans l'app (voir piano.ts).
+          const [note] = resolveStepNotes(accompaniment.steps[index], EXAMPLE_TRIAD);
+          jouerNote(note).catch((error) => {
+            console.error('[AccompanimentPanelContent] jouerNote (filet expo-audio) a échoué :', error);
+          });
+        }
+        return;
+      }
+
+      // VALSE (tout accompagnement à PLUSIEURS notes par pas — un seul cas
+      // aujourd'hui dans ACCOMPANIMENTS, mais détection structurelle comme
+      // pour l'arpège, pas un id en dur) : même patron que ci-dessus, avec
+      // jouerValseWebAudio/jouerAccord (plusieurs notes) au lieu de
+      // jouerArpegeWebAudio/jouerNote (une seule).
+      if (USE_WEB_AUDIO_WALTZ) {
+        // NOUVEAU MOTEUR : toute la séquence du tour (les 3 pas — "boum" +
+        // 2× "tchac", avec leurs notes ET leurs durées PROPRES, lues telles
+        // quelles depuis accompaniment.steps) est programmée EN UNE FOIS, au
+        // redémarrage du tour (index 0) — voir jouerValseWebAudio, qui
+        // plaque les notes d'UN MÊME pas au même startTime. Même principe
+        // que l'arpège ci-dessus : rien à déclencher pour index > 0, déjà
+        // programmé.
+        if (index === 0) {
+          const pasNotesDuTour = accompaniment.steps.map((step) => resolveStepNotes(step, EXAMPLE_TRIAD));
+          const dureesDuTour = accompaniment.steps.map((step) => step.durationMs);
+          jouerValseWebAudio(pasNotesDuTour, dureesDuTour);
+        }
+      } else {
+        // FILET expo-audio : rejoue les notes plaquées de CE pas
+        // immédiatement (jouerAccord — plusieurs notes simultanées, pas
+        // jouerNote), au fur et à mesure comme l'arpège en filet ci-dessus.
+        const notesDuPas = resolveStepNotes(accompaniment.steps[index], EXAMPLE_TRIAD);
+        jouerAccord(notesDuPas).catch((error) => {
+          console.error('[AccompanimentPanelContent] jouerAccord (filet expo-audio, valse) a échoué :', error);
+        });
+      }
     };
 
     const scheduleNextStep = () => {
@@ -476,19 +566,29 @@ export function AccompanimentPanelContent({ isOpen }: AccompanimentPanelContentP
 
       <Text style={styles.modalTitle}>{selectedAccompaniment.name}</Text>
 
-      {/* "key" force PianoChord à remonter ENTIÈREMENT à chaque pas
-          (accompagnement + pas combinés dans la clé) : les pas n'ont pas
-          tous le même nombre de notes (1 pour une note isolée, 3 pour un
-          accord plaqué façon Valse), un remontage complet évite tout état
-          interne de PianoChord hérité d'un pas ou d'un accompagnement à
-          l'autre — même précaution que dans VoicingPanelContent (voir son
-          commentaire).
+      {/* "key" NE dépend QUE de selectedAccompanimentIndex (pas de
+          stepIndex) : un changement d'ACCOMPAGNEMENT (Arpège ↔ Valse, où le
+          nombre de notes par pas change structurellement) remonte bien
+          PianoChord entièrement, mais un simple changement de PAS au sein du
+          même accompagnement ne fait plus que re-rendre le clavier déjà
+          monté avec de nouvelles "notes" — c'est ce re-render (et non un
+          remount) qui met à jour la touche en surbrillance à chaque note.
+          Inclure stepIndex dans la clé (comme avant) faisait recréer
+          <PianoChord> en entier à CHAQUE pas (measure du conteneur, calcul
+          du nombre d'octaves... tout repartait de zéro), d'où le clavier qui
+          semblait "clignoter"/se recharger au lieu de rester stable.
+          Sans risque d'état interne hérité entre 2 pas malgré ce remontage
+          moins fréquent : showInversionControls={false} ci-dessous fige déjà
+          le seul state interne concerné (le renversement affiché) à 0 pour
+          toute la durée de vie de ce composant dans ce panneau — il n'y a
+          donc rien à "remettre à zéro" entre 2 pas, seulement entre 2
+          accompagnements différents (déjà couvert par la clé).
           showInversionControls={false} / showArpeggioButton={false} :
           comme les autres panneaux, celui-ci montre un PRINCIPE sur un
           accord d'exemple fixe qui s'anime tout seul, pas un accord à
           manipuler ni un 2e arpège à déclencher manuellement. */}
       <PianoChord
-        key={`${selectedAccompanimentIndex}-${stepIndex}`}
+        key={selectedAccompanimentIndex}
         notes={activeNotes}
         showInversionControls={false}
         showArpeggioButton={false}
@@ -1269,6 +1369,31 @@ export default function ResultScreen() {
             addedCadenceId,
           );
 
+          // "▶ Écouter la progression" — convertit CHAQUE degré affiché en
+          // notes réelles, EXACTEMENT comme ExpandedChordPanel le fait pour
+          // UN SEUL accord déplié (même buildExtendedChord/
+          // buildSecondaryDominantOfV, même détection du degré spécial V/V,
+          // même niveau d'enrichissement par accord via getLevel) — pas de
+          // recalcul différent, pas de nouvelle logique de conversion degré
+          // → notes. Chaque accord reste à sa position THÉORIQUE (pas de
+          // voicing : voicingMode est un state LOCAL à ExpandedChordPanel,
+          // qui n'existe que pour l'accord actuellement déplié, pas pour
+          // toute la progression).
+          const handleListenProgression = () => {
+            const accords = displayedDegrees.map((degree, chordIndex) => {
+              const level = getLevel({ progressionIndex, chordIndex });
+              const isSecondaryDominant = degree === SECONDARY_DOMINANT_OF_V_DEGREE;
+              const { notes } = isSecondaryDominant
+                ? buildSecondaryDominantOfV(mode, tonic, 3)
+                : buildExtendedChord(degree, mode, tonic, level, 3);
+              return notes;
+            });
+
+            jouerProgressionWebAudio(accords).catch((error) => {
+              console.warn('jouerProgressionWebAudio a échoué :', error);
+            });
+          };
+
           return (
             <View key={progressionIndex} style={styles.progressionBlock}>
               {/* ÉLÉMENT CENTRAL DE LA PAGE : les degrés en carrés homogènes
@@ -1304,6 +1429,22 @@ export default function ResultScreen() {
                   );
                 })}
               </View>
+
+              {/* "▶ Écouter la progression" — voir handleListenProgression
+                  juste au-dessus. Pas de mise en évidence de l'accord en
+                  cours de lecture pour cette brique : le seul state
+                  "sélectionné" existant (selected) sert à DÉPLIER le piano
+                  d'un accord au clic, un usage différent — le synchroniser
+                  avec la lecture demanderait son propre séquenceur
+                  temporisé, en plus du son déjà programmé ici, ce qui
+                  dépasse le périmètre "le son d'abord" de cette étape. Même
+                  style que les 3 actions globales en bas d'écran
+                  (actionButton) pour rester cohérent visuellement, bien que
+                  scopée à CETTE progression plutôt que globale à l'écran. */}
+              <Pressable style={styles.actionButton} onPress={handleListenProgression}>
+                <Text style={styles.actionButtonIcon}>▶</Text>
+                <Text style={styles.actionButtonLabel}>Écouter la progression</Text>
+              </Pressable>
 
               {/* RENDU CONDITIONNEL DU PIANO : seulement pour LE degré
                   sélectionné, et seulement sous SA progression (pas sous les

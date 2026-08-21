@@ -75,7 +75,9 @@ const SAMPLE_SOURCES: Record<string, number> = {
   C6: require('../dataset/piano songs/C6.mp3'),
 };
 
-type PianoSample = {
+// Exportée pour la même raison que CorrespondanceSample plus bas (référencée
+// par son champ "sample").
+export type PianoSample = {
   // Nom Tonal de la note DU SAMPLE (ex: "D#3") — pas la note demandée par
   // l'appelant, voir calculerCorrespondanceSample plus bas.
   note: string;
@@ -128,7 +130,12 @@ export type LectureNoteResult = {
   decalageDemiTons: number;
 };
 
-type CorrespondanceSample = {
+// Exportée (avec la fonction ci-dessous) : réutilisée par
+// src/audio/webAudioArpeggioEngine.ts (brique "timing précis" de l'arpège,
+// moteur react-native-audio-api) pour résoudre une note vers son sample le
+// plus proche SANS dupliquer cette table/ce calcul — zéro changement de
+// comportement ici, juste de la visibilité en plus.
+export type CorrespondanceSample = {
   sample: PianoSample;
   semitoneOffset: number;
   rate: number;
@@ -136,7 +143,7 @@ type CorrespondanceSample = {
 
 // Calcule, pour une note demandée, LE sample le plus proche ET le rate à lui
 // appliquer pour qu'il sonne exactement à cette hauteur.
-function calculerCorrespondanceSample(note: string): CorrespondanceSample {
+export function calculerCorrespondanceSample(note: string): CorrespondanceSample {
   const targetMidi = Note.midi(note);
   if (targetMidi === null) {
     throw new Error(`Note invalide : "${note}"`);

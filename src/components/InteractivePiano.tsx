@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Interval, Note } from 'tonal';
 
 import { theme } from '../theme';
+import { jouerNoteImmediateWebAudio } from '../audio/webAudioArpeggioEngine';
 
 // Composant CLIQUABLE (contrairement à PianoChord, qui ne fait qu'afficher un
 // accord) : chaque touche est un Pressable, qui allume brièvement la touche
@@ -15,6 +16,16 @@ interface InteractivePianoProps {
   // d'intervalle de la leçon 1.1 (jusqu'à une septième majeure d'écart, ex.
   // C4 à B4), et plus simple à afficher lisiblement sur un petit écran.
   octaves?: number;
+  // Optionnel — appelé à CHAQUE tap, en plus du comportement existant
+  // (son + allumage + intervalle), jamais à sa place. Ajouté pour
+  // ReproduisAccordScreen.tsx (exercice "Reproduis l'accord", module "Les
+  // bases de l'improvisation") : c'est LUI qui a besoin d'observer les
+  // notes jouées pour valider un accord, PAS ce composant — InteractivePiano
+  // ne connaît rien aux accords/exercices, il se contente de signaler
+  // "cette touche vient d'être tapée". Aucun appelant existant
+  // (LessonCourseScreen) ne passe cette prop : optionnelle, donc sans effet
+  // sur son comportement actuel.
+  onNotePlayed?: (noteWithOctave: string) => void;
 }
 
 const DEFAULT_OCTAVES = 2;
@@ -126,7 +137,7 @@ function describeInterval(noteA: string, noteB: string): string | null {
   return formatIntervalFrench(simpleNum, interval.q);
 }
 
-export function InteractivePiano({ octaves = DEFAULT_OCTAVES }: InteractivePianoProps) {
+export function InteractivePiano({ octaves = DEFAULT_OCTAVES, onNotePlayed }: InteractivePianoProps) {
   const whiteKeys = Array.from({ length: octaves }, (_, octaveIndex) =>
     WHITE_NOTES.map((note, indexInOctave) => ({
       note,
@@ -174,6 +185,16 @@ export function InteractivePiano({ octaves = DEFAULT_OCTAVES }: InteractivePiano
   const [lastTwoNotes, setLastTwoNotes] = useState<string[]>([]);
 
   const handlePressKey = (noteWithOctave: string) => {
+    // SON — immédiat et indépendant (voir jouerNoteImmediateWebAudio,
+    // src/audio/webAudioArpeggioEngine.ts) : ne coupe rien, chaque touche
+    // tapée lance sa propre voix qui résonne jusqu'à sa fin naturelle,
+    // permettant à 2 notes tapées rapidement de se superposer comme sur un
+    // vrai piano. .catch() plutôt qu'un état d'erreur dédié : un échec audio
+    // ne doit jamais empêcher le feedback visuel ci-dessous de fonctionner.
+    jouerNoteImmediateWebAudio(noteWithOctave).catch((error) => {
+      console.warn('jouerNoteImmediateWebAudio a échoué :', error);
+    });
+
     // Feedback visuel : on annule d'abord un éventuel minuteur d'extinction
     // encore en attente (appui précédent pas encore éteint) — sinon il
     // pourrait éteindre CETTE nouvelle touche prématurément, à la place de
@@ -189,6 +210,8 @@ export function InteractivePiano({ octaves = DEFAULT_OCTAVES }: InteractivePiano
     }, ACTIVE_KEY_DURATION_MS);
 
     setLastTwoNotes((previous) => [...previous, noteWithOctave].slice(-2));
+
+    onNotePlayed?.(noteWithOctave);
   };
 
   const intervalName =

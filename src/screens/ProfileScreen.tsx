@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Pressable,
   StyleSheet,
@@ -69,8 +68,6 @@ export default function ProfileScreen() {
     profil,
     isLoading: isProfileLoading,
     error: profileError,
-    ajouterJetons,
-    depenserJetons,
   } = useProfile();
   const { succesDebloques } = useSucces();
   // Ouvre le menu réglages (drawer glissant, voir SettingsDrawer.tsx) —
@@ -229,32 +226,6 @@ export default function ProfileScreen() {
 
   const handleSearchPress = () => {
     navigation.navigate('SearchUsers');
-  };
-
-  // --- TEST TEMPORAIRE DU SOCLE MONNAIE (jetons) --------------------------
-  // TODO: à retirer une fois le socle monnaie (ajouterJetons/depenserJetons,
-  // ProfileContext.tsx) validé manuellement — sert uniquement à vérifier ici
-  // que gagner fonctionne ET, surtout, que dépenser REFUSE bien quand le
-  // solde est insuffisant (Alert.alert("Erreur", ...) plutôt qu'un débit
-  // silencieux qui rendrait le solde négatif).
-  const handleTestAjouterJetons = async () => {
-    const { error } = await ajouterJetons(50);
-    if (error) {
-      Alert.alert('Erreur', error);
-      return;
-    }
-    Alert.alert('Test jetons', '+50 jetons ajoutés.');
-  };
-
-  const handleTestDepenserJetons = async () => {
-    const { error } = await depenserJetons(30);
-    if (error) {
-      // C'est ICI que le refus "solde insuffisant" (voir depenserJetons,
-      // ProfileContext.tsx) doit s'afficher — le solde n'a alors PAS bougé.
-      Alert.alert('Test jetons', error);
-      return;
-    }
-    Alert.alert('Test jetons', '-30 jetons dépensés.');
   };
 
   const displayName = isProfileLoading
@@ -424,25 +395,6 @@ export default function ProfileScreen() {
                 <Text style={styles.recapLabel}>{item.label}</Text>
               </View>
             ))}
-          </View>
-        </View>
-
-        <View style={styles.divider} />
-
-        {/* TEST TEMPORAIRE — voir handleTestAjouterJetons/handleTestDepenserJetons :
-            à retirer une fois le socle monnaie validé manuellement. */}
-        <View style={styles.section}>
-          <Text style={theme.text.title}>Test jetons (temporaire)</Text>
-          <Text style={styles.testJetonsSolde}>
-            Solde actuel : {isProfileLoading ? '…' : profil ? profil.jetons : '—'} 🪙
-          </Text>
-          <View style={styles.testJetonsRow}>
-            <Pressable style={styles.testJetonsButton} onPress={handleTestAjouterJetons}>
-              <Text style={styles.testJetonsButtonLabel}>test +50 jetons</Text>
-            </Pressable>
-            <Pressable style={styles.testJetonsButton} onPress={handleTestDepenserJetons}>
-              <Text style={styles.testJetonsButtonLabel}>test -30 jetons</Text>
-            </Pressable>
           </View>
         </View>
 
@@ -779,35 +731,6 @@ const styles = StyleSheet.create({
   recapLabel: {
     fontSize: theme.text.size.sm,
     color: theme.colors.textMuted,
-    textAlign: 'center',
-  },
-  // --- TEST TEMPORAIRE JETONS (à retirer avec la section JSX correspondante) ---
-  testJetonsSolde: {
-    fontSize: theme.text.size.md,
-    color: theme.colors.textMuted,
-  },
-  testJetonsRow: {
-    flexDirection: 'row',
-    gap: theme.spacing.md,
-  },
-  // Même recette que "actionButton" de creation.tsx (contour, fond surface) :
-  // pas un bouton primaire, ce sont des outils de test, pas une action
-  // principale de l'écran.
-  testJetonsButton: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.colors.surface,
-    borderRadius: theme.radius.lg,
-    paddingVertical: theme.spacing.md,
-    paddingHorizontal: theme.spacing.md,
-    borderWidth: 1,
-    borderColor: theme.colors.primary,
-  },
-  testJetonsButtonLabel: {
-    fontSize: theme.text.size.sm,
-    fontWeight: theme.text.weight.semibold,
-    color: theme.colors.primary,
     textAlign: 'center',
   },
   achievementTile: {
